@@ -1,0 +1,138 @@
+/* 全体のスタイル */
+.machine-list-container {
+  width: 90%;
+  max-width: 800px;
+  margin: 30px auto;
+  padding: 20px;
+  background: #ffffff;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  text-align: center;
+}
+
+/* タイトル */
+.machine-list-container h2 {
+  font-size: 24px;
+  margin-bottom: 20px;
+  color: #333;
+}
+
+/* 戻るボタン */
+.back-btn {
+  display: block;
+  width: 100%;
+  max-width: 200px;
+  padding: 10px;
+  font-size: 16px;
+  font-weight: bold;
+  color: white;
+  background: #007bff;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  text-align: center;
+  margin: 15px auto;
+}
+
+.back-btn:hover {
+  background: #0056b3;
+}
+
+/* テーブルのスタイル */
+.machine-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 20px;
+  background: #f9f9f9;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* テーブルのヘッダー */
+.machine-table thead {
+  background: #007bff;
+  color: white;
+}
+
+.machine-table thead th {
+  padding: 12px;
+  text-align: center;
+  font-size: 16px;
+}
+
+/* テーブルのボディ */
+.machine-table tbody tr {
+  border-bottom: 1px solid #ddd;
+}
+
+.machine-table tbody tr:nth-child(even) {
+  background: #f1f1f1;
+}
+
+.machine-table tbody td {
+  padding: 12px;
+  font-size: 14px;
+}
+
+/* データなしの表示 */
+.no-data {
+  font-size: 18px;
+  color: #777;
+  margin-top: 20px;
+}
+
+/* レスポンシブ対応 */
+@media (max-width: 600px) {
+  .machine-list-container {
+    width: 100%;
+    padding: 15px;
+  }
+
+  .machine-table thead th,
+  .machine-table tbody td {
+    padding: 8px;
+    font-size: 14px;
+  }
+}
+
+.quantity-input {
+  width: 60px;
+  padding: 5px;
+  text-align: center;
+  font-size: 14px;
+}
+
+.edit-btn, .save-btn, .cancel-btn {
+  padding: 5px 10px;
+  font-size: 14px;
+  border: none;
+  cursor: pointer;
+  border-radius: 5px;
+}
+
+.edit-btn {
+  background: #007bff;
+  color: white;
+}
+
+.save-btn {
+  background: #28a745;
+  color: white;
+}
+
+.cancel-btn {
+  background: #dc3545;
+  color: white;
+}
+
+.edit-btn:hover {
+  background: #0056b3;
+}
+
+.save-btn:hover {
+  background: #218838;
+}
+
+.cancel-btn:hover {
+  background: #c82333;
+}

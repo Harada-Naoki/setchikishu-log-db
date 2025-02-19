@@ -1,0 +1,69 @@
+/* フォーム全体のコンテナ */
+.container {
+  max-width: 500px; /* 最大幅を制限 */
+  margin: 40px auto; /* 上下40pxの余白をつけ、中央寄せ */
+  padding: 20px;
+  background: #f9f9f9;
+  border-radius: 10px;
+  box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.1);
+}
+
+/* 入力フォームを縦並びに */
+.machine-form {
+  display: flex;
+  flex-direction: column;
+  gap: 15px; /* 各入力欄の間隔 */
+}
+
+/* ラベル */
+label {
+  font-weight: bold;
+}
+
+/* 店舗名・種別のセレクトボックス */
+select {
+  width: 100%; /* 横幅を制限 */
+  max-width: 300px; /* 最大幅を300pxに制限 */
+  padding: 8px;
+  font-size: 16px;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  background: white;
+}
+
+/* 機種名 & 台数の入力欄 */
+.machine-textarea {
+  width: 100%;
+  height: 200px; /* 高さを拡大 */
+  font-size: 16px;
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  resize: vertical;
+}
+
+/* 送信ボタン */
+.submit-btn, .navigate-btn {
+  width: 100%;
+  max-width: 300px; /* ボタンの最大幅を制限 */
+  padding: 12px;
+  font-size: 16px;
+  font-weight: bold;
+  color: white;
+  background: #007bff;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  text-align: center;
+  margin: 10px auto; /* 中央寄せ & 上の余白 */
+  display: block;
+}
+
+.submit-btn:hover, .navigate-btn:hover {
+  background: #0056b3; /* ホバー時の色を少し濃く */
+}
+
+
+
+
+
