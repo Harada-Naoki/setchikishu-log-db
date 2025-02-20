@@ -14,17 +14,17 @@ app.use(cors());
 //   user: process.env.DB_USER,
 //   password: process.env.DB_PASSWORD,
 //   database: process.env.DB_NAME,
-//   charset: "utf8mb4" // 日本語対応
+//   charset: "utf8mb4" 
 // });
 
-// MySQL (TiDB) データベース接続設定
+MySQL (TiDB) 
 const db = mysql.createConnection({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
   port: process.env.DB_PORT || 4000,
-  ssl: { rejectUnauthorized: true }  // TiDB は SSL 必須
+  ssl: { rejectUnauthorized: true }  
 });
 
 db.connect(err => {
@@ -232,28 +232,7 @@ app.post("/add-machine", (req, res) => {
 });
 
 // 📌 自店と競合店を取得するAPI
-app.get("/get-stores", (req, res) => {
-  const query = `
-    SELECT s.store_name, GROUP_CONCAT(c.competitor_name) AS competitors
-    FROM stores s
-    LEFT JOIN competitor_stores c ON s.id = c.store_id
-    GROUP BY s.store_name;
-  `;
 
-  db.query(query, (err, results) => {
-    if (err) {
-      return res.status(500).json({ error: "データ取得エラー" });
-    }
-
-    // フォーマットを調整
-    const storeList = results.map(row => ({
-      name: row.store_name,
-      competitors: row.competitors ? row.competitors.split(",") : []
-    }));
-
-    res.json(storeList);
-  });
-});
 
 // 📌 種別を取得するAPI
 app.get("/get-types", (req, res) => {
