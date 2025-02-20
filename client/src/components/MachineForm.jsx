@@ -61,39 +61,76 @@ function MachineForm({ selectedStore }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     const machines = parseMachineData();
-
+  
     if (!selectedCompetitor || !type || machines.length === 0) {
       alert("すべての項目を入力してください");
       return;
     }
-
+  
     const payload = {
       storeName: selectedStore,
       competitorName: selectedCompetitor,
-      category: type,
+      category: type, // ✅ フロントエンドから category を送る
       machines
     };
-
+  
     try {
       const response = await fetch(`${API_URL}/add-machine`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-
+  
+      const data = await response.json();
+  
       if (response.ok) {
-        alert("データが登録されました！");
-        setSelectedCompetitor("");
-        setType("");
-        setMachineData("");
+        if (data.needsConfirmation) {
+          const userConfirmed = window.confirm(
+            `${data.message}\nこのまま更新しますか？`
+          );
+  
+          if (!userConfirmed) {
+            alert("更新をキャンセルしました");
+            return;
+          }
+  
+          // `/confirm-update-machine` に category も送る
+          const confirmResponse = await fetch(`${API_URL}/confirm-update-machine`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              competitorId: data.competitorId,
+              category: data.category,  // ✅ ここで category を渡す
+              categoryId: data.categoryId,
+              totalQuantity: data.totalQuantity,
+              machines: data.machines
+            }),
+          });
+  
+          const confirmData = await confirmResponse.json();
+  
+          if (confirmResponse.ok) {
+            alert("データが登録されました！");
+            setSelectedCompetitor("");
+            setType("");
+            setMachineData("");
+          } else {
+            alert(`登録に失敗しました: ${confirmData.error}`);
+          }
+        } else {
+          alert("データが登録されました！");
+          setSelectedCompetitor("");
+          setType("");
+          setMachineData("");
+        }
       } else {
-        alert("登録に失敗しました");
+        alert(`登録に失敗しました: ${data.error}`);
       }
     } catch (error) {
       console.error("Error:", error);
       alert("エラーが発生しました");
     }
-  };
+  };  
 
   /** 🔹 競合店を追加する */
   const handleAddCompetitor = async () => {
