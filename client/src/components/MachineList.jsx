@@ -12,10 +12,13 @@ function MachineList() {
   const selectedCompetitor = queryParams.get("competitor");
   const selectedType = queryParams.get("type");
 
-  useEffect(() => {
-    if (!selectedStore || !selectedCompetitor || !selectedType) return;
+  const API_URL = process.env.REACT_APP_API_URL; // 🌍 環境変数を適用
 
-    fetch(`http://localhost:5000/get-machines?storeName=${selectedStore}&competitorName=${selectedCompetitor}&category=${selectedType}`)
+  /** 🔹 機種データを取得 */
+  useEffect(() => {
+    if (!API_URL || !selectedStore || !selectedCompetitor || !selectedType) return;
+
+    fetch(`${API_URL}/get-machines?storeName=${selectedStore}&competitorName=${selectedCompetitor}&category=${selectedType}`)
       .then(res => res.json())
       .then(data => setMachines(data.map(machine => ({
         ...machine,
@@ -24,23 +27,23 @@ function MachineList() {
         formattedDate: machine.updated_at ? new Date(machine.updated_at).toISOString().split("T")[0] : "" // 🔹 日付のみ取得
       }))))
       .catch(err => console.error("エラー:", err));
-  }, [selectedStore, selectedCompetitor, selectedType]);
+  }, [API_URL, selectedStore, selectedCompetitor, selectedType]);
 
-  // 🔹 編集モードを切り替え
+  /** 🔹 編集モードを切り替え */
   const toggleEdit = (index) => {
     setMachines(machines.map((machine, i) =>
       i === index ? { ...machine, isEditing: !machine.isEditing } : machine
     ));
   };
 
-  // 🔹 台数を変更
+  /** 🔹 台数を変更 */
   const handleQuantityChange = (index, newValue) => {
     setMachines(machines.map((machine, i) =>
       i === index ? { ...machine, newQuantity: newValue } : machine
     ));
   };
 
-  // 🔹 台数を更新（`updated_at` を変更しない）
+  /** 🔹 台数を更新 */
   const updateQuantity = (index) => {
     const machine = machines[index];
 
@@ -49,7 +52,7 @@ function MachineList() {
       return;
     }
 
-    fetch("http://localhost:5000/update-machine-quantity", {
+    fetch(`${API_URL}/update-machine-quantity`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

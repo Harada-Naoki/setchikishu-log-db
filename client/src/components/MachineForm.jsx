@@ -12,27 +12,32 @@ function MachineForm({ selectedStore }) {
   const [showAddForm, setShowAddForm] = useState(false);
   const navigate = useNavigate();
 
-  // 🔹 API から `storeData` を取得し、競合店を取得
+  const API_URL = process.env.REACT_APP_API_URL;
+
+  /** 🔹 競合店リストを取得 */
   useEffect(() => {
-    fetch("http://localhost:5000/get-stores")
+    if (!API_URL || !selectedStore) return;
+    
+    fetch(`${API_URL}/get-stores`)
       .then(res => res.json())
       .then(data => {
         const store = data.find(s => s.name === selectedStore);
-        const competitors = store ? store.competitors : [];
-        setCompetitors(competitors);
+        setCompetitors(store ? store.competitors : []);
       })
       .catch(err => console.error("エラー:", err));
-  }, [selectedStore]);
+  }, [API_URL, selectedStore]);
 
-
-  // 🔹 API から `typeOptions` を取得
+  /** 🔹 種別リストを取得 */
   useEffect(() => {
-    fetch("http://localhost:5000/get-types")
+    if (!API_URL) return;
+
+    fetch(`${API_URL}/get-types`)
       .then(res => res.json())
-      .then(data => setTypeOptions(data)) 
+      .then(data => setTypeOptions(data))
       .catch(err => console.error("エラー:", err));
-  }, []);
-  
+  }, [API_URL]);
+
+  /** 🔹 機種データをパース */
   const parseMachineData = () => {
     const lines = machineData.split("\n").map(line => line.trim()).filter(Boolean);
     let machines = [];
@@ -52,6 +57,7 @@ function MachineForm({ selectedStore }) {
     return machines;
   };
 
+  /** 🔹 機種データを登録 */
   const handleSubmit = async (e) => {
     e.preventDefault();
     const machines = parseMachineData();
@@ -69,7 +75,7 @@ function MachineForm({ selectedStore }) {
     };
 
     try {
-      const response = await fetch("http://localhost:5000/add-machine", {
+      const response = await fetch(`${API_URL}/add-machine`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -89,7 +95,7 @@ function MachineForm({ selectedStore }) {
     }
   };
 
-  // 🔹 競合店を追加する処理
+  /** 🔹 競合店を追加する */
   const handleAddCompetitor = async () => {
     if (!newCompetitor) {
       alert("競合店名を入力してください");
@@ -97,7 +103,7 @@ function MachineForm({ selectedStore }) {
     }
 
     try {
-      const response = await fetch("http://localhost:5000/add-competitor", {
+      const response = await fetch(`${API_URL}/add-competitor`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ storeName: selectedStore, competitorName: newCompetitor }),
@@ -106,9 +112,9 @@ function MachineForm({ selectedStore }) {
       if (response.ok) {
         alert("競合店が追加されました！");
         setCompetitors([...competitors, newCompetitor].sort((a, b) => a.localeCompare(b, "ja")));
-        setNewCompetitor(""); // 入力フィールドをクリア
-        setShowAddForm(false); // フォームを閉じる
-        setSelectedCompetitor(newCompetitor); // 追加した競合店を選択
+        setNewCompetitor(""); 
+        setShowAddForm(false); 
+        setSelectedCompetitor(newCompetitor);
       } else {
         alert("競合店の追加に失敗しました");
       }
@@ -118,6 +124,7 @@ function MachineForm({ selectedStore }) {
     }
   };
 
+  /** 🔹 競合店選択の処理 */
   const handleCompetitorChange = (e) => {
     const value = e.target.value;
     if (value === "add-new") {
@@ -129,7 +136,7 @@ function MachineForm({ selectedStore }) {
     }
   };
 
-  // 🔹 競合店舗・種別が選択されているか確認して遷移
+  /** 🔹 一覧画面へ遷移 */
   const handleNavigate = () => {
     if (!selectedCompetitor || !type) {
       alert("競合店舗と種別を選択してください！");
@@ -174,7 +181,11 @@ function MachineForm({ selectedStore }) {
         </select>
 
         <label>機種名 & 台数:</label>
-        <textarea className="machine-textarea" value={machineData} onChange={(e) => setMachineData(e.target.value)} />
+        <textarea 
+          className="machine-textarea" 
+          value={machineData} 
+          onChange={(e) => setMachineData(e.target.value)} 
+        />
 
         <button type="submit" className="submit-btn">登録</button>
       </form>

@@ -6,13 +6,15 @@ function SelectStore({ setSelectedStore }) {
   const [selected, setSelected] = useState("");
   const navigate = useNavigate();
 
+  const API_URL = process.env.REACT_APP_API_URL;
+
   // 🔹 API から `storeList` を取得
   useEffect(() => {
-    fetch("http://localhost:5000/get-stores")
+    fetch(`${API_URL}/get-stores`)
       .then(res => res.json())
       .then(data => setStoreList(data))
       .catch(err => console.error("エラー:", err));
-  }, []);
+  }, [API_URL]);
 
   const handleSelect = () => {
     if (!selected) {
