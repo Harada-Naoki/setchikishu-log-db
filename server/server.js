@@ -9,23 +9,23 @@ app.use(express.json());
 app.use(cors());
 
 // MySQL接続設定
-const db = mysql.createConnection({
-  host: process.env.DB_HOST,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME,
-  charset: "utf8mb4" // 日本語対応
-});
-
-// MySQL (TiDB) データベース接続設定
 // const db = mysql.createConnection({
 //   host: process.env.DB_HOST,
 //   user: process.env.DB_USER,
 //   password: process.env.DB_PASSWORD,
 //   database: process.env.DB_NAME,
-//   port: process.env.DB_PORT || 4000,
-//   ssl: { rejectUnauthorized: true }  // TiDB は SSL 必須
+//   charset: "utf8mb4" // 日本語対応
 // });
+
+// MySQL (TiDB) データベース接続設定
+const db = mysql.createConnection({
+  host: process.env.DB_HOST,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME,
+  port: process.env.DB_PORT || 4000,
+  ssl: { rejectUnauthorized: true }  
+});
 
 db.connect(err => {
   if (err) {
