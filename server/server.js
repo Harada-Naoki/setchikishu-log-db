@@ -9,23 +9,23 @@ app.use(express.json());
 app.use(cors());
 
 // MySQL接続設定
-// const db = mysql.createConnection({
-//   host: process.env.DB_HOST,
-//   user: process.env.DB_USER,
-//   password: process.env.DB_PASSWORD,
-//   database: process.env.DB_NAME,
-//   charset: "utf8mb4" // 日本語対応
-// });
-
-// MySQL (TiDB) データベース接続設定
 const db = mysql.createConnection({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
-  port: process.env.DB_PORT || 4000,
-  ssl: { rejectUnauthorized: true }  
+  charset: "utf8mb4" // 日本語対応
 });
+
+// MySQL (TiDB) データベース接続設定
+// const db = mysql.createConnection({
+//   host: process.env.DB_HOST,
+//   user: process.env.DB_USER,
+//   password: process.env.DB_PASSWORD,
+//   database: process.env.DB_NAME,
+//   port: process.env.DB_PORT || 4000,
+//   ssl: { rejectUnauthorized: true }  
+// });
 
 db.connect(err => {
   if (err) {
@@ -77,21 +77,61 @@ app.post("/add-machine", (req, res) => {
           const difference = Math.abs(currentTotal - totalQuantity);
 
           if (difference >= 1) {
-            console.warn(`⚠️ 総台数の差異: 現在=${currentTotal}, 更新後=${totalQuantity}`);
             return res.json({
-              message: `総台数に大きな差異があります（${currentTotal} → ${totalQuantity}）。確認してください。`,
-              needsConfirmation: true,
-              competitorId,
+              message: `総台数に差異があります (${currentTotal} → ${totalQuantity})。確認してください。`,
+              needsTotalQuantityConfirmation: true,
+              competitorId,  
               category,
-              categoryId,
-              totalQuantity,
-              machines
+              categoryId,    
+              totalQuantity, 
+              machines,
             });
-          }
+          }                  
 
           // **差分が小さい場合はそのまま更新**
-          updateMachineData(competitorId, category, categoryId, totalQuantity, machines, res);
+          console.log("🛠 `insertOrUpdateMachineData` に渡す値:", { competitorId, category, categoryId, totalQuantity, machines });
+          insertOrUpdateMachineData(competitorId, category, categoryId, totalQuantity, machines, res);
         });
+      });
+    });
+  });
+});
+
+app.post("/confirm-machine-update", (req, res) => {
+  const { storeName, competitorName, category, machines, totalQuantity } = req.body;
+
+  if (!storeName || !competitorName || !category || !machines || machines.length === 0) {
+    console.error("❌ エラー: 必要なデータが不足しています");
+    return res.status(400).json({ error: "必要なデータが不足しています" });
+  }
+
+  db.query("SELECT id FROM stores WHERE store_name = ?", [storeName], (err, storeResult) => {
+    if (err || storeResult.length === 0) {
+      console.error("❌ エラー: 自店が見つかりません");
+      return res.status(400).json({ error: "自店が見つかりません" });
+    }
+    const storeId = storeResult[0].id;
+
+    db.query("SELECT id FROM competitor_stores WHERE store_id = ? AND competitor_name = ?", 
+      [storeId, competitorName], (err, compResult) => {
+      if (err || compResult.length === 0) {
+        console.error("❌ エラー: 競合店が見つかりません");
+        return res.status(400).json({ error: "競合店が見つかりません" });
+      }
+      const competitorId = compResult[0].id;
+
+      db.query("SELECT id FROM categories WHERE category_name = ?", [category], (err, catResult) => {
+        if (err || catResult.length === 0) {
+          console.error("❌ エラー: カテゴリーが見つかりません");
+          return res.status(400).json({ error: "カテゴリーが見つかりません" });
+        }
+        const categoryId = catResult[0].id;
+
+        const totalQuantity = machines.reduce((sum, { quantity }) => sum + quantity, 0);
+
+        console.log("🛠 `confirm-machine-update` に渡す値:", { competitorId, category, categoryId, totalQuantity, machines });
+
+        insertOrUpdateMachineData(competitorId, category, categoryId, totalQuantity, machines, res);
       });
     });
   });
@@ -99,43 +139,40 @@ app.post("/add-machine", (req, res) => {
 
 // 📌 UIで確認後にデータを更新API
 app.post("/confirm-update-machine", (req, res) => {
-  const { competitorId, category, categoryId, totalQuantity, machines } = req.body;
+  console.log("🛠 受信したリクエストデータ:", req.body);
 
-  if (!category) {
-    console.error("❌ エラー: category が未定義です");
-    return res.status(400).json({ error: "カテゴリーが指定されていません" });
+  const { competitorId, categoryId, totalQuantity, machines, updatedAt } = req.body;
+
+  if (!Array.isArray(machines) || machines.length === 0) {
+    console.error("❌ エラー: `machines` が無効です:", machines);
+    return res.status(400).json({ error: "無効な `machines` データ" });
   }
 
-  console.log(`📌 確認後の更新処理を実行: competitorId=${competitorId}, category=${category}, totalQuantity=${totalQuantity}`);
+  // **登録用データの整理**
+  const values = machines.map(({ inputName, name_collection_id, sis_code, quantity }) => [
+    competitorId, categoryId, inputName, name_collection_id, sis_code, quantity, updatedAt
+  ]);
 
-  updateMachineData(competitorId, category, categoryId, totalQuantity, machines, res);
+  // **データ登録**
+  db.query(`
+    INSERT INTO machine_data (competitor_id, category_id, machine_name, name_collection_id, sis_code, quantity, updated_at) 
+    VALUES ? 
+    ON DUPLICATE KEY UPDATE quantity = VALUES(quantity), updated_at = VALUES(updated_at)
+  `, [values], (err) => {
+    if (err) {
+      console.error("❌ ステージ3の登録エラー:", err);
+      return res.status(500).json({ error: "ステージ3の登録エラー" });
+    }
+
+    console.log("✅ ステージ3のデータを正常に登録しました");
+    res.json({ message: "登録完了" });
+  });
 });
 
 // データを更新する関数**
-function updateMachineData(competitorId, category, categoryId, totalQuantity, machines, res) {
-  if (!category) {
-    console.error("❌ エラー: category が未定義です");
-    return res.status(500).json({ error: "内部エラー: category が未定義です" });
-  }
-
-  const updateQuery = `UPDATE competitor_stores SET \`${category}\` = ? WHERE id = ?`;
-
-  db.query(updateQuery, [totalQuantity, competitorId], (err, updateResult) => {
-    if (err) {
-      console.error("❌ 総台数の更新エラー:", err);
-      return res.status(500).json({ error: "総台数の更新エラー" });
-    }
-
-    console.log("✅ 総台数の更新成功");
-
-    // **machine_data を更新**
-    insertOrUpdateMachineData(competitorId, categoryId, machines, res);
-  });
-}
-
-// データを更新する関数**
-function insertOrUpdateMachineData(competitorId, categoryId, machines, res) {
-  // Stage 1: Basic normalization
+function insertOrUpdateMachineData(competitorId, category, categoryId, totalQuantity, machines, res) {
+  const updatedAt = new Date().toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
+  
   function basicNormalize(text) {
     return text
       .replace(/[Ａ-Ｚａ-ｚ０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xFEE0))
@@ -147,7 +184,6 @@ function insertOrUpdateMachineData(competitorId, categoryId, machines, res) {
       .trim();
   }
 
-  // Stage 2: Game-specific normalization
   function gameSpecificNormalize(text) {
     return text
       .replace(/ぱちんこ|パチンコ/gi, '')
@@ -167,11 +203,11 @@ function insertOrUpdateMachineData(competitorId, categoryId, machines, res) {
     quantity
   }));
 
-  const queries = cleanedMachines.map(({ originalName, stage1Clean, stage2Clean }) => {
+  const queries = cleanedMachines.map(({ originalName, stage1Clean, stage2Clean, quantity }) => {
     return new Promise((resolve, reject) => {
-      const basicNormalizeQuery = `
-        SELECT id, dotcom_machine_name 
-        FROM name_collection 
+      // **name_collection_id を取得**
+      const query = `
+        SELECT id, sis_code FROM name_collection 
         WHERE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
           dotcom_machine_name, '-', ''), '‐', ''), '－', ''), ' ', ''), '　', ''), '~', ''), '〜', ''), '～', ''), '【', ''), '】', '') 
         COLLATE utf8mb4_unicode_ci
@@ -180,32 +216,35 @@ function insertOrUpdateMachineData(competitorId, categoryId, machines, res) {
         LIMIT 1
       `;
 
-      db.query(basicNormalizeQuery, [stage1Clean], (err, stage1Result) => {
-        if (err) {
-          console.error("❌ Stage 1 検索エラー:", err);
-          return reject(err);
-        }
-
+      db.query(query, [stage1Clean], (err, stage1Result) => {
+        if (err) return reject(err);
         if (stage1Result.length > 0) {
-          return resolve({ inputName: originalName, masterId: stage1Result[0].id, matchStage: 1 });
+          return resolve({
+            inputName: originalName,
+            name_collection_id: stage1Result[0].id,
+            sis_code: stage1Result[0].sis_code,
+            matchStage: 1,
+            quantity
+          });
         }
 
-        // Stage 2: Game-specific normalization
-        db.query(basicNormalizeQuery, [stage2Clean], (err, stage2Result) => {
-          if (err) {
-            console.error("❌ Stage 2 検索エラー:", err);
-            return reject(err);
-          }
-
+        db.query(query, [stage2Clean], (err, stage2Result) => {
+          if (err) return reject(err);
           if (stage2Result.length > 0) {
-            return resolve({ inputName: originalName, masterId: stage2Result[0].id, matchStage: 2 });
+            return resolve({
+              inputName: originalName,
+              name_collection_id: stage2Result[0].id,
+              sis_code: stage2Result[0].sis_code,
+              matchStage: 2,
+              quantity
+            });
           }
 
-          // Stage 3: Levenshtein distance matching
+          // **Levenshtein Distance で最も近いマッチを取得**
           db.query(`
-            SELECT id, dotcom_machine_name, LEVENSHTEIN_DISTANCE(
+            SELECT id, sis_code, dotcom_machine_name, LEVENSHTEIN_DISTANCE(
               REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
-                dotcom_machine_name, '-', ''), '‐', ''), '－', ''), ' ', ''), '　', ''), '~', ''), '〜', ''), '～', ''), '【', ''), '】', ''),
+                dotcom_machine_name, '-', ''), '‐', ''), '－', ''), ' ', ''), '　', ''), '~', ''), '〜', ''), '～', ''), '【', ''), '】', ''), 
               ? COLLATE utf8mb4_unicode_ci
             ) AS distance 
             FROM name_collection 
@@ -213,15 +252,14 @@ function insertOrUpdateMachineData(competitorId, categoryId, machines, res) {
             ORDER BY distance ASC, LENGTH(REGEXP_REPLACE(dotcom_machine_name, '【.*?】', '')) ASC
             LIMIT 1
           `, [stage2Clean], (err, stage3Result) => {
-            if (err) {
-              console.error("❌ Stage 3 検索エラー:", err);
-              return reject(err);
-            }
+            if (err) return reject(err);
 
             resolve({
               inputName: originalName,
-              masterId: stage3Result.length > 0 ? stage3Result[0].id : null,
-              matchStage: stage3Result.length > 0 ? 3 : null
+              name_collection_id: stage3Result.length > 0 ? stage3Result[0].id : null,
+              sis_code: stage3Result.length > 0 ? stage3Result[0].sis_code : null,
+              matchStage: stage3Result.length > 0 ? 3 : null,
+              quantity
             });
           });
         });
@@ -231,45 +269,143 @@ function insertOrUpdateMachineData(competitorId, categoryId, machines, res) {
 
   Promise.all(queries)
     .then(results => {
-      const masterIds = results.map(r => r.masterId).filter(id => id !== null);
-      if (masterIds.length === 0) {
-        return res.status(400).json({ error: "登録するデータがありません" });
-      }
+      // **ステージ1・2のデータ（確定しているデータ）**
+      const stage1And2 = results.filter(r => r.matchStage === 1 || r.matchStage === 2);
+      // **ステージ3のデータ（フロント確認が必要なデータ）**
+      const stage3 = results.filter(r => r.matchStage === 3);
 
-      db.query("SELECT id, sis_code FROM name_collection WHERE id IN (?)", [masterIds], (err, sisCodeResults) => {
-        if (err) {
-          console.error("❌ sis_code 取得エラー:", err);
-          return res.status(500).json({ error: "sis_code 取得エラー" });
-        }
-
-        const sisCodeMap = {};
-        sisCodeResults.forEach(({ id, sis_code }) => {
-          sisCodeMap[id] = sis_code;
-        });
-
-        const values = cleanedMachines.map(({ originalName, quantity }) => {
-          const result = results.find(r => r.inputName === originalName);
-          const masterId = result?.masterId || null;
-          const sisCode = masterId ? sisCodeMap[masterId] || null : null;
-          return [competitorId, categoryId, originalName, masterId, sisCode, quantity];
-        });
+      // **ステージ1・2をDBに登録**
+      if (stage1And2.length > 0) {
+        const values = stage1And2.map(({ inputName, name_collection_id, sis_code, quantity }) => [
+          competitorId, categoryId, inputName, name_collection_id, sis_code, quantity, updatedAt
+        ]);
 
         db.query(`
-          INSERT INTO machine_data (competitor_id, category_id, machine_name, name_collection_id, sis_code, quantity) 
+          INSERT INTO machine_data 
+          (competitor_id, category_id, machine_name, name_collection_id, sis_code, quantity, updated_at) 
           VALUES ? 
-          ON DUPLICATE KEY UPDATE quantity = VALUES(quantity), sis_code = VALUES(sis_code), updated_at = NOW()
+          ON DUPLICATE KEY UPDATE quantity = VALUES(quantity), updated_at = VALUES(updated_at)
         `, [values], (err) => {
           if (err) {
             console.error("❌ データ登録エラー:", err);
             return res.status(500).json({ error: "データ登録エラー" });
           }
-
-          console.log("✅ データ登録成功");
-          res.json({ message: "データ登録成功" });
+          console.log("✅ ステージ1・2のデータ登録成功");
         });
+      }
+
+      // **ステージ1・2のデータ登録後に総台数を更新**
+      const updateQuery = `UPDATE competitor_stores SET \`${category}\` = ? WHERE id = ?`;
+      db.query(updateQuery, [totalQuantity, competitorId], (err, updateResult) => {
+        if (err) {
+          console.error("❌ 総台数の更新エラー:", err);
+          return res.status(500).json({ error: "総台数の更新エラー" });
+        }
+        console.log(`✅ 総台数 (${category}) を ${totalQuantity} に更新しました`);
       });
+
+      // **ステージ3のデータをフロントに送信**
+      if (stage3.length === 0) {
+        return res.json({
+          message: "登録完了（ステージ3の確認は不要）",
+          competitorId,
+          category,
+          categoryId,
+          totalQuantity,
+          updatedAt
+        });
+      }
+
+      // **ステージ3のデータに関して、補足情報（機種詳細など）を取得**
+      const nameCollectionIds = stage3.map(r => r.name_collection_id).filter(id => id !== null);
+
+      if (nameCollectionIds.length > 0) {
+        // **まず name_collection テーブルから sis_code を取得**
+        db.query(`SELECT id, sis_code FROM name_collection WHERE id IN (?)`, [nameCollectionIds], (err, sisCodeResults) => {
+          if (err) {
+            console.error("❌ name_collection から sis_code の取得エラー:", err);
+            return res.status(500).json({ error: "sis_code の取得エラー" });
+          }
+
+          // **取得した sis_code を配列に変換**
+          const sisCodes = sisCodeResults.map(row => row.sis_code).filter(code => code !== null);
+
+          if (sisCodes.length === 0) {
+            console.log("❌ name_collection から取得した sis_code が空です");
+            return res.json({
+              message: "確認が必要なデータがあります",
+              needsStage3Confirmation: true,
+              competitorId,
+              category,
+              categoryId,
+              totalQuantity,
+              machines: stage3,
+              machineDetails: [],
+              updatedAt
+            });
+          }
+
+          // **sis_code を使って sis_machine_data から必要な情報を取得**
+          db.query(`
+            SELECT sis_machine_code, sis_type_code, cr_category, sis_maker_code, sis_machine_name
+            FROM sis_machine_data
+            WHERE sis_machine_code IN (?)
+          `, [sisCodes], (err, machineDetails) => {
+            if (err) {
+              console.error("❌ sis_machine_data の取得エラー:", err);
+              return res.status(500).json({ error: "機種情報取得エラー" });
+            }
+
+            console.log("🛠 `/insertOrUpdateMachineData` で送るデータ:", {
+              competitorId,
+              category,
+              categoryId,
+              totalQuantity,
+              machines: stage3,
+              machineDetails,
+              updatedAt
+            });
+
+            return res.json({
+              message: "確認が必要なデータがあります",
+              needsStage3Confirmation: true,
+              competitorId,
+              category,
+              categoryId,
+              totalQuantity,
+              machines: stage3,
+              machineDetails,
+              updatedAt
+            });
+          });
+        });
+      } else {
+        // **name_collection_id が null の場合（完全に一致しない）**
+        console.log("🛠 `/insertOrUpdateMachineData` で送るデータ（完全に一致しない）:", {
+          competitorId,
+          category,
+          categoryId,
+          totalQuantity,
+          machines: stage3,
+          updatedAt
+        });
+
+        return res.json({
+          message: "確認が必要なデータがあります",
+          needsStage3Confirmation: true,
+          competitorId,
+          category,
+          categoryId,
+          totalQuantity,
+          machines: stage3,
+          updatedAt
+        });
+      }
     })
-    .catch(err => res.status(500).json({ error: "機種情報取得エラー" }));
+    .catch(err => {
+      console.error("❌ データ処理エラー:", err);
+      res.status(500).json({ error: "データ処理エラー" });
+    });
 }
 
 // 📌 自店と競合店を取得するAPI
