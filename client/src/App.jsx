@@ -4,6 +4,7 @@ import Login from "./components/Login";
 import SelectStore from "./components/SelectStore";
 import MachineForm from "./components/MachineForm";
 import MachineList from "./components/MachineList";
+import SisSelect from "./components/SisSelectForm";
 
 function App() {
   const [selectedStore, setSelectedStore] = useState("");
@@ -15,6 +16,7 @@ function App() {
         <Route path="/select-store" element={<SelectStore setSelectedStore={setSelectedStore} />} />
         <Route path="/register" element={<MachineForm selectedStore={selectedStore} />} />
         <Route path="/machines" element={<MachineList />} />
+        <Route path="/sis-select" element={<SisSelect/>} />
       </Routes>
     </Router>
   );
