@@ -1,9 +1,12 @@
 from fastapi import FastAPI
-import mysql.connector
 import Levenshtein
 import re
 import os
 from dotenv import load_dotenv
+
+# import mysql.connector
+
+import pymysql
 
 # 環境変数をロード
 load_dotenv()
@@ -27,6 +30,8 @@ DB_CONFIG = {
     "ssl": {"ssl": {}}
 }
 
+
+
 # 特殊文字を削除する関数（データの正規化）
 def normalize_name(name):
     return re.sub(r'[-‐－ 　~〜～【】]', '', name)
@@ -36,10 +41,20 @@ def find_closest_machine(input_name):
     input_name = normalize_name(input_name)
 
     # MySQL から `name_collection` のデータを取得
-    conn = mysql.connector.connect(**DB_CONFIG)
-    cursor = conn.cursor(dictionary=True)
+    # conn = mysql.connector.connect(**DB_CONFIG)
+    # cursor = conn.cursor(dictionary=True)
+    # cursor.execute("SELECT id, sis_code, dotcom_machine_name FROM name_collection")
+    # machines = cursor.fetchall()
+    # conn.close()
+
+    # 本番用
+    conn = pymysql.connect(**DB_CONFIG)
+    cursor = conn.cursor()
     cursor.execute("SELECT id, sis_code, dotcom_machine_name FROM name_collection")
-    machines = cursor.fetchall()
+    rows = cursor.fetchall()
+    columns = [desc[0] for desc in cursor.description]
+    machines = [dict(zip(columns, row)) for row in rows]
+    cursor.close()
     conn.close()
 
     closest_match = None
