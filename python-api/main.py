@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 
 # import mysql.connector
 
+# 本番用
 import pymysql
 
 # 環境変数をロード
@@ -93,3 +94,7 @@ def search_machine(name: str):
         "name": None,
         "matchStage": 4
     }
+
+@app.get("/ping")
+async def ping():
+    return {"message": "pong"}

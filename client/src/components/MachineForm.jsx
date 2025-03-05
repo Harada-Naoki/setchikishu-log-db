@@ -98,6 +98,7 @@ function MachineForm({ selectedStore }) {
   
     if (!selectedCompetitor || !type || machines.length === 0) {
       alert("すべての項目を入力してください");
+      setIsLoading(false);
       return;
     }
   
@@ -343,7 +344,7 @@ function MachineForm({ selectedStore }) {
       (_, idx) => !confirmedMachines.has(idx)
     );
     if (unconfirmedStage3.length > 0) {
-      messages.push("ステージ3の確認が完了していません。");
+      messages.push("確認が完了していません。");
     }
 
     // ステージ4の未修正データ
@@ -351,7 +352,7 @@ function MachineForm({ selectedStore }) {
       (m) => !m.fixedName || m.fixedName.trim() === ""
     );
     if (unconfirmedStage4.length > 0) {
-      messages.push("ステージ4の機種名が未修正です。");
+      messages.push("機種名が未修正です。");
     }
 
     return messages.length > 0 ? messages.join("\n") : "すべての修正が完了しています。";
@@ -467,7 +468,7 @@ function MachineForm({ selectedStore }) {
         {/* 🔹 ステージ3のデータ表示*/}
         {pendingConfirmation?.machines.length > 0 && (
           <>
-            <h3>ステージ3（曖昧マッチ）</h3>
+            <h3>機種名が正しいか確認してください</h3>
             <table>
               <thead>
                 <tr>
@@ -527,7 +528,7 @@ function MachineForm({ selectedStore }) {
         {/* 🔹 ステージ4のデータ表示*/}
         {pendingConfirmation?.machinesStage4.length > 0 && (
           <>
-            <h3>ステージ4（マッチなし・要修正）</h3>
+            <h3>該当機種が見つかりませんでした(要修正)</h3>
             <table>
               <thead>
                 <tr>

@@ -10,27 +10,27 @@ app.use(express.json());
 app.use(cors());
 
 // MySQL接続設定
-const db = mysql.createConnection({
-  host: process.env.DB_HOST,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME,
-  charset: "utf8mb4" // 日本語対応
-});
-
-const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
-
-// MySQL (TiDB) データベース接続設定
 // const db = mysql.createConnection({
 //   host: process.env.DB_HOST,
 //   user: process.env.DB_USER,
 //   password: process.env.DB_PASSWORD,
 //   database: process.env.DB_NAME,
-//   port: process.env.DB_PORT || 4000,
-//   ssl: { rejectUnauthorized: true }  
+//   charset: "utf8mb4" // 日本語対応
 // });
 
-// const FASTAPI_URL = process.env.FASTAPI_URL || "https://setchikishu-log-db-python.onrender.com";
+// const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
+
+// MySQL (TiDB) データベース接続設定
+const db = mysql.createConnection({
+  host: process.env.DB_HOST,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME,
+  port: process.env.DB_PORT || 4000,
+  ssl: { rejectUnauthorized: true }  
+});
+
+const FASTAPI_URL = process.env.FASTAPI_URL || "https://setchikishu-log-db-python.onrender.com";
 
 db.connect(err => {
   if (err) {
@@ -683,6 +683,11 @@ app.get('/get-sis-machines', (req, res) => {
     }
     res.json(results);
   });
+});
+
+// ヘルスチェック用エンドポイント
+app.get('/ping', (req, res) => {
+  res.status(200).send('pong');
 });
 
 // 📌 サーバー起動
