@@ -10,7 +10,7 @@ app.use(express.json());
 app.use(cors());
 
 // MySQL接続設定
-// const db = mysql.createConnection({
+// const db = mysql.createPool({
 //   host: process.env.DB_HOST,
 //   user: process.env.DB_USER,
 //   password: process.env.DB_PASSWORD,
@@ -21,7 +21,7 @@ app.use(cors());
 // const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
 
 // MySQL (TiDB) データベース接続設定
-const db = mysql.createConnection({
+const db = mysql.createPool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
@@ -32,13 +32,26 @@ const db = mysql.createConnection({
 
 const FASTAPI_URL = process.env.FASTAPI_URL || "https://setchikishu-log-db-python.onrender.com";
 
-db.connect(err => {
-  if (err) {
-    console.error("MySQL接続エラー:", err);
-  } else {
-    console.log("MySQL接続成功");
-  }
-});
+// db.connect(err => {
+//   if (err) {
+//     console.error("MySQL接続エラー:", err);
+//   } else {
+//     console.log("MySQL接続成功");
+//   }
+// });
+
+const CHECK_INTERVAL = 1000 * 60 * 5; // 5分
+
+const checkDbConnection = () => {
+  db.getConnection((err, connection) => {
+    if (err) {
+      console.error("【定期チェック】MySQL接続エラー:", err);
+    } else {
+      console.log("【定期チェック】MySQL接続成功");
+      connection.release();
+    }
+  });
+};
 
 // 📌 総台数の差を確認し登録作業を進めるAPI
 app.post("/add-machine", (req, res) => {
@@ -172,19 +185,19 @@ app.post("/confirm-update-machine", (req, res) => {
     });
   };
 
-  const updateMachineData = (inputName, name_collection_id, sis_code) => {
+  const updateMachineData = (inputName, name_collection_id, sis_code, updatedAt) => {
     return new Promise((resolve, reject) => {
       const updateSql = `
         UPDATE machine_data
-        SET name_collection_id = ?, sis_code = ?
+        SET name_collection_id = ?, sis_code = ?, updated_at = ?
         WHERE machine_name = ?
       `;
-      db.query(updateSql, [name_collection_id, sis_code, inputName], (err) => {
+      db.query(updateSql, [name_collection_id, sis_code, updatedAt, inputName], (err) => {
         if (err) return reject(err);
         resolve();
       });
     });
-  };
+  };  
 
   const processMachines = (machines) => {
     return machines.map(({ inputName, sis_code }) => {
@@ -691,4 +704,11 @@ app.get('/ping', (req, res) => {
 });
 
 // 📌 サーバー起動
-app.listen(5000, () => console.log("サーバーがポート5000で起動"));
+app.listen(5000, () => {
+  console.log("サーバーがポート5000で起動");
+  // 起動直後に1回チェック
+  checkDbConnection();
+  // 5分ごとにDB接続チェック
+  setInterval(checkDbConnection, CHECK_INTERVAL);
+});
+
