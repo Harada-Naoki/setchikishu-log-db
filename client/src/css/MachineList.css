@@ -1,7 +1,7 @@
 /* 全体のスタイル */
 .machine-list-container {
   width: 90%;
-  max-width: 800px;
+  max-width: 1000px;
   margin: 30px auto;
   padding: 20px;
   background: #ffffff;
@@ -58,6 +58,23 @@
   padding: 12px;
   text-align: center;
   font-size: 16px;
+}
+
+.cansort {
+  cursor: pointer; /* ポインター変更でクリック可能アピール */
+  user-select: none; /* テキスト選択防止 */
+  position: relative; /* アイコン位置調整用 */
+  padding-right: 20px; /* アイコンのスペース確保 */
+  white-space: nowrap;
+}
+
+.cansort:hover {
+  background-color: #f0f8ff; /* ホバー時に薄い色を追加 */
+  color: #333;
+}
+
+th .sort-icon {
+  color: #666;
 }
 
 /* テーブルのボディ */

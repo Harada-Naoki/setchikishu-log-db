@@ -1,12 +1,14 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import Modal from "react-modal";
 import axios from "axios";
 import "../css/MachineForm.css";
 
 Modal.setAppElement("#root");
 
-function MachineForm({ selectedStore }) {
+function MachineForm() {
+  const { storeName } = useParams();
+  const [selectedStore, setSelectedStore] = useState("");
   const [competitors, setCompetitors] = useState([]);
   const [typeOptions, setTypeOptions] = useState([]);
   const [selectedCompetitor, setSelectedCompetitor] = useState("");
@@ -29,9 +31,21 @@ function MachineForm({ selectedStore }) {
   const [machineName, setMachineName] = useState(""); // 🔹 検索用の機種名
   const [confirmedMachines, setConfirmedMachines] = useState(new Set()); // 🔹 確定済みの機種管理
   const [searchingMachine, setSearchingMachine] = useState(null);
+  const [pachinkoTypes, setPachinkoTypes] = useState([]);
+  const [slotTypes, setSlotTypes] = useState([]);
+  const [latestUpdates, setLatestUpdates] = useState([]);
+  const isOwnStore = selectedCompetitor === "self";
+
 
 
   const API_URL = process.env.REACT_APP_API_URL;
+
+  /** 🔹 自店名を取得 */
+  useEffect(() => {
+    if (storeName) {
+      setSelectedStore(decodeURIComponent(storeName));
+    }
+  }, [storeName]);
 
   /** 🔹 競合店リストを取得 */
   useEffect(() => {
@@ -49,10 +63,14 @@ function MachineForm({ selectedStore }) {
   /** 🔹 種別リストを取得 */
   useEffect(() => {
     if (!API_URL) return;
-
+  
     fetch(`${API_URL}/get-types`)
       .then(res => res.json())
-      .then(data => setTypeOptions(data))
+      .then(data => {
+        setTypeOptions(data);
+        setPachinkoTypes(data.slice(0, 4));
+        setSlotTypes(data.slice(4, 8));
+      })
       .catch(err => console.error("エラー:", err));
   }, [API_URL]);
 
@@ -104,10 +122,13 @@ function MachineForm({ selectedStore }) {
   
     const payload = {
       storeName: selectedStore,
-      competitorName: selectedCompetitor,
+      competitorName: isOwnStore ? null : selectedCompetitor,
       category: type,
-      machines
+      machines,
+      isOwnStore
     };
+
+    console.log("✅ 送信データ:", payload); 
   
     try {
       const response = await fetch(`${API_URL}/add-machine`, {
@@ -169,13 +190,14 @@ function MachineForm({ selectedStore }) {
 
   /** 🔹 フォームリセット関数 */
   const resetForm = () => {
-    setSelectedCompetitor("");
-    setType("");
     setMachineData("");
     setShowConfirmationModal(false);
     setSearchingMachine(null);
     setSearchingIndex(null);
     setSearchingStage(null);
+    if (selectedCompetitor) {
+      handleCompetitorChange({ target: { value: selectedCompetitor } });
+    }
   };
 
   /** 🔹 キャンセル用リセット関数 */
@@ -184,6 +206,9 @@ function MachineForm({ selectedStore }) {
     setSearchingMachine(null);
     setSearchingIndex(null);
     setSearchingStage(null);
+    if (selectedCompetitor) {
+      handleCompetitorChange({ target: { value: selectedCompetitor } });
+    }
   };
 
   /** 🔹 競合店を追加する */
@@ -218,25 +243,59 @@ function MachineForm({ selectedStore }) {
   /** 🔹 競合店選択の処理 */
   const handleCompetitorChange = (e) => {
     const value = e.target.value;
+  
     if (value === "add-new") {
       setShowAddForm(true);
       setSelectedCompetitor("");
+      setLatestUpdates([]); // 追加モードでは最新更新日リセット
+    } else if (value === "self") {
+      // ✅ 自店の場合
+      setSelectedCompetitor("self");
+      setShowAddForm(false);
+  
+      fetch(`${API_URL}/get-latest-updates?storeName=${storeName}&competitorName=self`)
+        .then(res => res.json())
+        .then(data => {
+          console.log("✅ 自店の最新更新日時取得:", data);
+          setLatestUpdates(data);
+        })
+        .catch(err => {
+          console.error("❌ 自店の最新更新日時取得エラー:", err);
+          setLatestUpdates([]);
+        });
     } else {
+      // ✅ 競合店の場合
       setSelectedCompetitor(value);
       setShowAddForm(false);
+  
+      fetch(`${API_URL}/get-latest-updates?storeName=${storeName}&competitorName=${value}`)
+        .then(res => res.json())
+        .then(data => {
+          console.log("✅ 競合店の最新更新日時取得:", data);
+          setLatestUpdates(data);
+        })
+        .catch(err => {
+          console.error("❌ 競合店の最新更新日時取得エラー:", err);
+          setLatestUpdates([]);
+        });
     }
-  };
-
+  };  
+  
   /** 🔹 一覧画面へ遷移 */
   const handleNavigate = () => {
     if (!selectedCompetitor || !type) {
-      alert("競合店舗と種別を選択してください！");
+      const encodedStore = encodeURIComponent(selectedStore);
+      navigate(`/machines/${encodedStore}`);
       return;
     }
-    navigate(`/machines?store=${selectedStore}&competitor=${selectedCompetitor}&type=${type}`);
+    const encodedStore = encodeURIComponent(selectedStore);
+    const encodedCompetitor = encodeURIComponent(selectedCompetitor);
+    const encodedType = encodeURIComponent(type);
+  
+    navigate(`/machines/${encodedStore}?competitor=${encodedCompetitor}&type=${encodedType}`);
   };
-
-   // 🔹 機種検索
+  
+  // 🔹 機種検索
   const fetchMachines = async () => {
     if (!machineType) {
       alert("種別（パチンコ or スロット）を選択してください");
@@ -378,15 +437,17 @@ function MachineForm({ selectedStore }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          competitorId: pendingConfirmation.competitorId, 
+          isOwnStore: pendingConfirmation.isOwnStore, // ✅ 追加
+          targetId: pendingConfirmation.isOwnStore 
+            ? pendingConfirmation.storeId 
+            : pendingConfirmation.competitorId, // ✅ 自店 or 競合
           category: pendingConfirmation.category,
-          categoryId: pendingConfirmation.categoryId, 
-          totalQuantity: pendingConfirmation.totalQuantity, 
+          categoryId: pendingConfirmation.categoryId,
+          totalQuantity: pendingConfirmation.totalQuantity,
           machines: pendingConfirmation.machines,  // ステージ3
-          machinesStage4: pendingConfirmation.machinesStage4,  // ステージ4を追加
+          machinesStage4: pendingConfirmation.machinesStage4,  // ステージ4
           updatedAt: pendingConfirmation.updatedAt,
         }),
-        
       });
   
       const confirmData = await confirmResponse.json();
@@ -404,19 +465,29 @@ function MachineForm({ selectedStore }) {
       setShowConfirmationModal(false);
       setPendingConfirmation(null);
     }
-  };
+  };  
   
   return (
     <div className="container">
       <h2>設置機種登録 - {selectedStore}</h2>
       {isLoading && <p className="loading-text">データ登録中...</p>}
       <form className="machine-form" onSubmit={handleSubmit}>
-        <label>競合店を選択:</label>
+        <label>登録する店舗を選択:</label>
         <select value={selectedCompetitor} onChange={handleCompetitorChange}>
           <option value="">選択してください</option>
+
+          {/* 自店名を追加 */}
+          {selectedStore && (
+            <option value={"self"}>【自店】{selectedStore}</option>
+          )}
+
+          {/* 競合店舗のリスト */}
           {competitors.map((store) => (
-            <option key={store} value={store}>{store}</option>
+            <option key={store} value={store}>
+              {store}
+            </option>
           ))}
+
           <option value="add-new">+ 競合店を追加</option>
         </select>
 
@@ -433,13 +504,68 @@ function MachineForm({ selectedStore }) {
           </div>
         )}
 
+        {latestUpdates.length > 0 && (
+          <div className="latest-updates">
+            <label>最新更新日</label>
+            <ul>
+              {latestUpdates.map(update => {
+                const updatedDate = new Date(update.latest_update);
+                const now = new Date();
+                const oneWeekAgo = new Date();
+                oneWeekAgo.setDate(now.getDate() - 7);
+
+                const isOld = updatedDate < oneWeekAgo;
+
+                return (
+                  <li
+                    key={update.category_id}
+                    style={{ color: isOld ? "red" : "inherit" }}
+                  >
+                    {update.category_name}: {updatedDate.toLocaleString()}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
+
         <label>種別:</label>
-        <select value={type} onChange={(e) => setType(e.target.value)}>
-          <option value="">選択してください</option>
-          {typeOptions.map((t) => (
-            <option key={t} value={t}>{t}</option>
-          ))}
-        </select>
+        {pachinkoTypes.length > 0 && (
+          <div className="type-group">
+            <span className="type-group-title">【パチンコ】</span>
+            <div className="type-options">
+              {pachinkoTypes.map((t) => (
+                <label key={t} className="type-option">
+                  <input
+                    type="radio"
+                    value={t}
+                    checked={type === t}
+                    onChange={(e) => setType(e.target.value)}
+                  />
+                  {t}
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+        {slotTypes.length > 0 && (
+          <div className="type-group">
+            <span className="type-group-title">【スロット】</span>
+            <div className="type-options">
+              {slotTypes.map((t) => (
+                <label key={t} className="type-option">
+                  <input
+                    type="radio"
+                    value={t}
+                    checked={type === t}
+                    onChange={(e) => setType(e.target.value)}
+                  />
+                  {t}
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
 
         <label>機種名 & 台数:</label>
         <textarea 
@@ -646,7 +772,30 @@ function MachineForm({ selectedStore }) {
 
         <button onClick={resetModal}>キャンセル</button>
       </Modal>
-      <button onClick={handleNavigate} className="navigate-btn">機種一覧へ移動</button>
+
+      <div className="button-container">
+        <div className="button-box" onClick={handleNavigate}>
+          <div className="icon">
+            📋
+          </div>
+          <h3>設置機種一覧へ</h3>
+          <p>登録済みの設置機種一覧を確認・編集する画面に移動します。</p>
+        </div>
+
+        <div className="button-box" onClick={() => navigate(`/updates/${encodeURIComponent(storeName)}`)}>
+          <div className="icon">
+            🔄
+          </div>
+          <h3>更新情報一覧へ</h3>
+          <p>競合店のカテゴリごとの最新更新状況を確認する画面に移動します。</p>
+        </div>
+      </div>
+      <button
+        className="navigate-btn"
+        onClick={() => navigate(`/select-store`)}
+      >
+        Topへ
+      </button>
     </div>
   );
 }
