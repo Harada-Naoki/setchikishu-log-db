@@ -32,13 +32,13 @@ const db = mysql.createPool({
 
 const FASTAPI_URL = process.env.FASTAPI_URL || "https://setchikishu-log-db-python.onrender.com";
 
-db.connect(err => {
-  if (err) {
-    console.error("MySQL接続エラー:", err);
-  } else {
-    console.log("MySQL接続成功");
-  }
-});
+// db.connect(err => {
+//   if (err) {
+//     console.error("MySQL接続エラー:", err);
+//   } else {
+//     console.log("MySQL接続成功");
+//   }
+// });
 
 const CHECK_INTERVAL = 1000 * 60 * 5; // 5分
 
@@ -932,6 +932,7 @@ app.post("/update-machine-quantity", (req, res) => {
     });
   });
 });
+
 
 // 📌更新日時を取得するAPI（自店対応）
 app.get("/get-updated-dates", (req, res) => {
