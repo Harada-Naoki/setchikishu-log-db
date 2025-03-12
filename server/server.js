@@ -1058,11 +1058,11 @@ app.get("/get-machines-by-dates", (req, res) => {
                   return res.status(500).json({ error: "データ取得エラー" });
                 }
 
-                const date1ISO = new Date(date1).toISOString();
-                const date2ISO = new Date(date2).toISOString();
+                const date1ISO = new Date(date1).toISOString().split("T")[0];
+                const date2ISO = new Date(date2).toISOString().split("T")[0];
 
-                const date1Data = results.filter(row => row.updated_at.toISOString() === date1ISO);
-                const date2Data = results.filter(row => row.updated_at.toISOString() === date2ISO);
+                const date1Data = results.filter(row => row.updated_at.toISOString().split("T")[0] === date1ISO);
+                const date2Data = results.filter(row => row.updated_at.toISOString().split("T")[0] === date2ISO);
 
                 res.json({
                   date1: date1Data,
