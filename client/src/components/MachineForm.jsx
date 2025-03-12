@@ -521,7 +521,7 @@ function MachineForm() {
                     key={update.category_id}
                     style={{ color: isOld ? "red" : "inherit" }}
                   >
-                    {update.category_name}: {updatedDate.toLocaleString()}
+                    {update.category_name}: {updatedDate.toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}
                   </li>
                 );
               })}
