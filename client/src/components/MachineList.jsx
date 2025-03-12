@@ -28,6 +28,7 @@ function MachineList() {
   const [comparisonMachines, setComparisonMachines] = useState([]);
   const [showComparisonTable, setShowComparisonTable] = useState(true);
   const [comparisonCompetitorTitle, setComparisonCompetitorTitle] = useState("");
+  const [CompetitorTitle, setCompetitorTitle] = useState("");
 
 
   const [sortConfig, setSortConfig] = useState({ key: '', direction: 'asc' });
@@ -357,6 +358,7 @@ function MachineList() {
       setComparisonMachines(mergedComparisonMachines);
   
       // ✅ タイトルを更新（比較が適用されたときのみ）
+      setCompetitorTitle(selectedCompetitor === "self" ? "自店" : selectedCompetitor);
       setComparisonCompetitorTitle(selectedComparisonCompetitor === "self" ? "自店" : selectedComparisonCompetitor);
     })
     .catch(err => {
@@ -483,10 +485,10 @@ function MachineList() {
                 <tr>
                   <th>機種名</th>
                   <th>
-                    {selectedCompetitor === "self" ? "自店" : selectedCompetitor} 台数 ({totalCurrentQuantity})
+                  {CompetitorTitle || "比較対象"} 台数 ({totalCurrentQuantity})
                   </th>
                   <th>
-                    {comparisonCompetitorTitle || "比較対象"} 台数 ({totalComparisonQuantity}) {/* ✅ 総台数を追加 */}
+                    {comparisonCompetitorTitle || "比較対象"} 台数 ({totalComparisonQuantity}) 
                   </th>
                   <th>差分</th>
                 </tr>
