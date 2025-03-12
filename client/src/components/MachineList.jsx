@@ -120,13 +120,10 @@ function MachineList() {
   }, [API_URL, decodedStoreName, selectedCompetitor, selectedType]);
 
   // 🔹 JST変換関数を追加
-  // const formatDateToJSTString = (dateStr) => {
-  //   const date = new Date(dateStr);
-  //   const jstDate = new Date(date.getTime() + (9 * 60 * 60 * 1000)); // UTC → JST
-  //   return jstDate.toISOString().slice(0, 19).replace('T', ' ');
-  // };
   const formatDateToJSTString = (dateStr) => {
-    return dateStr; // 変換せずにそのまま返す
+    const date = new Date(dateStr);
+    const jstDate = new Date(date.getTime() + (9 * 60 * 60 * 1000)); // UTC → JST
+    return jstDate.toISOString().slice(0, 19).replace('T', ' ');
   };
 
   const navigateWithParams = (competitor, type) => {
@@ -281,9 +278,7 @@ function MachineList() {
         }
 
         console.log("📆 データ（最新）:", data.date1);
-        console.table(data.date1); // 最新データの詳細を表形式で出力
         console.log("📆 データ（比較対象）:", data.date2);
-        console.table(data.date2); // 比較対象データの詳細を表形式で出力
 
         const latestMap = new Map();
         data.date1.forEach(machine => latestMap.set(machine.machine_name, machine));
@@ -315,7 +310,6 @@ function MachineList() {
         });
 
         console.log("📝 統合データ:", mergedMachines);
-        console.table(mergedMachines); // 統合後のデータを表形式で出力
 
         setMachines(mergedMachines);
       })
