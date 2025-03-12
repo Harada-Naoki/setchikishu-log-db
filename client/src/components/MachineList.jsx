@@ -262,14 +262,26 @@ function MachineList() {
     const isOwnStore = selectedCompetitor === "self"; // ✅ 自店判定
     const competitorParam = isOwnStore ? "self" : selectedCompetitor; // ✅ フロントエンドで適切に処理
 
-    const url = `${API_URL}/get-machines-by-dates?storeName=${decodedStoreName}&competitorName=${competitorParam}&category=${selectedType}&date1=${selectedDate1}&date2=${selectedDate2}`;
+    // 🔹 URLエンコーディングを適用
+    const encodedStoreName = encodeURIComponent(decodedStoreName);
+    const encodedCompetitor = encodeURIComponent(competitorParam);
+    const encodedCategory = encodeURIComponent(selectedType);
+    const encodedDate1 = encodeURIComponent(selectedDate1);
+    const encodedDate2 = encodeURIComponent(selectedDate2);
 
-    console.log("📡 リクエストURL:", url);
+    const url = `${API_URL}/get-machines-by-dates?storeName=${encodedStoreName}&competitorName=${encodedCompetitor}&category=${encodedCategory}&date1=${encodedDate1}&date2=${encodedDate2}`;
+
+    console.log("📡 送信URL:", url);
 
     fetch(url)
-      .then(res => res.json())
+      .then(res => {
+        if (!res.ok) {
+          throw new Error(`HTTPエラー: ${res.status} (${res.statusText})`);
+        }
+        return res.json();
+      })
       .then(data => {
-        console.log("📥 受信データ:", data); // 受信データ全体をログ出力
+        console.log("📥 受信データ:", data);
 
         if (!data.date1 || !data.date2) {
           console.warn("❗ 受信データに日付データが不足", data);
@@ -286,7 +298,7 @@ function MachineList() {
         const previousMap = new Map();
         data.date2.forEach(machine => previousMap.set(machine.machine_name, machine));
 
-        const allMachineNames = Array.from(new Set([...latestMap.keys(), ...previousMap.keys()]));
+        const allMachineNames = Array.from(new Set([...latestMap.keys(), ...previousMap.keys()])) ;
 
         const mergedMachines = allMachineNames.map(name => {
           const latest = latestMap.get(name);
@@ -315,9 +327,10 @@ function MachineList() {
       })
       .catch(err => {
         console.error("❌ fetchエラー:", err);
-        alert("データ取得中にエラーが発生しました");
+        alert(`データ取得中にエラーが発生しました: ${err.message}`);
       });
   };
+
 
   // 比較データ取得
   const fetchComparisonData = () => {
