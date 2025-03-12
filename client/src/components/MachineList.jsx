@@ -264,14 +264,23 @@ function MachineList() {
 
     const url = `${API_URL}/get-machines-by-dates?storeName=${decodedStoreName}&competitorName=${competitorParam}&category=${selectedType}&date1=${selectedDate1}&date2=${selectedDate2}`;
 
+    console.log("📡 リクエストURL:", url);
+
     fetch(url)
       .then(res => res.json())
       .then(data => {
+        console.log("📥 受信データ:", data); // 受信データ全体をログ出力
+
         if (!data.date1 || !data.date2) {
           console.warn("❗ 受信データに日付データが不足", data);
           alert("データが取得できませんでした");
           return;
         }
+
+        console.log("📆 データ（最新）:", data.date1);
+        console.table(data.date1); // 最新データの詳細を表形式で出力
+        console.log("📆 データ（比較対象）:", data.date2);
+        console.table(data.date2); // 比較対象データの詳細を表形式で出力
 
         const latestMap = new Map();
         data.date1.forEach(machine => latestMap.set(machine.machine_name, machine));
@@ -301,6 +310,9 @@ function MachineList() {
             newQuantity: quantity,
           };
         });
+
+        console.log("📝 統合データ:", mergedMachines);
+        console.table(mergedMachines); // 統合後のデータを表形式で出力
 
         setMachines(mergedMachines);
       })
