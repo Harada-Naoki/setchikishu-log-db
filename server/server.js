@@ -143,6 +143,7 @@ function checkAndInsert(
         targetId,  // storeId or competitorId
         category,
         categoryId,
+        currentTotal,
         totalQuantity,
         machines,
       });
