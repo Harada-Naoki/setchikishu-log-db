@@ -10,27 +10,27 @@ app.use(express.json());
 app.use(cors());
 
 // MySQL接続設定
-// const db = mysql.createPool({
-//   host: process.env.DB_HOST,
-//   user: process.env.DB_USER,
-//   password: process.env.DB_PASSWORD,
-//   database: process.env.DB_NAME,
-//   charset: "utf8mb4" // 日本語対応
-// });
-
-// const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
-
-// MySQL (TiDB) データベース接続設定
 const db = mysql.createPool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
-  port: process.env.DB_PORT || 4000,
-  ssl: { rejectUnauthorized: true }  
+  charset: "utf8mb4" // 日本語対応
 });
 
-const FASTAPI_URL = process.env.FASTAPI_URL || "https://setchikishu-log-db-python.onrender.com";
+const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
+
+// MySQL (TiDB) データベース接続設定
+// const db = mysql.createPool({
+//   host: process.env.DB_HOST,
+//   user: process.env.DB_USER,
+//   password: process.env.DB_PASSWORD,
+//   database: process.env.DB_NAME,
+//   port: process.env.DB_PORT || 4000,
+//   ssl: { rejectUnauthorized: true }  
+// });
+
+// const FASTAPI_URL = process.env.FASTAPI_URL || "https://setchikishu-log-db-python.onrender.com";
 
 // db.connect(err => {
 //   if (err) {
@@ -1012,6 +1012,116 @@ app.get("/get-updated-dates", (req, res) => {
 });
 
 // 📌任意2日付のデータ取得API
+// app.get("/get-machines-by-dates", (req, res) => {
+//   const { storeName, competitorName, category, date1, date2 } = req.query;
+
+//   db.query(
+//     "SELECT id FROM stores WHERE store_name = ?",
+//     [storeName],
+//     (err, storeResult) => {
+//       if (err || storeResult.length === 0) {
+//         console.error("❌ エラー: 自店が見つかりません", err);
+//         return res.status(400).json({ error: "自店が見つかりません" });
+//       }
+//       const storeId = storeResult[0].id;
+
+//       db.query(
+//         "SELECT id FROM categories WHERE category_name = ?",
+//         [category],
+//         (err, catResult) => {
+//           if (err || catResult.length === 0) {
+//             console.error("❌ エラー: カテゴリーが見つかりません", err);
+//             return res.status(400).json({ error: "カテゴリーが見つかりません" });
+//           }
+//           const categoryId = catResult[0].id;
+
+//           const isOwnStore = competitorName === "self"; // ✅ 自店判定
+
+//           if (isOwnStore) {
+//             // ✅ 自店のデータを取得
+//             console.log("🔍 自店のデータ取得:", { storeId, categoryId, date1, date2 });
+
+//             const machineQuery = `
+//               SELECT machine_name, quantity, updated_at
+//               FROM store_machine_data
+//               WHERE store_id = ? AND category_id = ?
+//               AND updated_at IN (?, ?)
+//               ORDER BY updated_at DESC, quantity DESC
+//             `;
+
+//             db.query(
+//               machineQuery,
+//               [storeId, categoryId, date1, date2],
+//               (err, results) => {
+//                 if (err) {
+//                   console.error("❌ データ取得エラー:", err);
+//                   return res.status(500).json({ error: "データ取得エラー" });
+//                 }
+
+//                 const date1ISO = new Date(date1).toISOString();
+//                 const date2ISO = new Date(date2).toISOString();
+
+//                 const date1Data = results.filter(row => row.updated_at.toISOString() === date1ISO);
+//                 const date2Data = results.filter(row => row.updated_at.toISOString() === date2ISO);
+
+//                 res.json({
+//                   date1: date1Data,
+//                   date2: date2Data
+//                 });
+//               }
+//             );
+//           } else {
+//             // ✅ 競合店のデータを取得
+//             db.query(
+//               "SELECT id FROM competitor_stores WHERE store_id = ? AND competitor_name = ?",
+//               [storeId, competitorName],
+//               (err, compResult) => {
+//                 if (err || compResult.length === 0) {
+//                   console.error("❌ エラー: 競合店が見つかりません", err);
+//                   return res.status(400).json({ error: "競合店が見つかりません" });
+//                 }
+//                 const competitorId = compResult[0].id;
+
+//                 console.log("🔍 競合店のデータ取得:", { competitorId, categoryId, date1, date2 });
+
+//                 const machineQuery = `
+//                   SELECT machine_name, quantity, updated_at
+//                   FROM machine_data
+//                   WHERE competitor_id = ? AND category_id = ?
+//                   AND updated_at IN (?, ?)
+//                   ORDER BY updated_at DESC, quantity DESC
+//                 `;
+
+//                 db.query(
+//                   machineQuery,
+//                   [competitorId, categoryId, date1, date2],
+//                   (err, results) => {
+//                     if (err) {
+//                       console.error("❌ データ取得エラー:", err);
+//                       return res.status(500).json({ error: "データ取得エラー" });
+//                     }
+
+//                     const date1ISO = new Date(date1).toISOString();
+//                     const date2ISO = new Date(date2).toISOString();
+
+//                     const date1Data = results.filter(row => row.updated_at.toISOString() === date1ISO);
+//                     const date2Data = results.filter(row => row.updated_at.toISOString() === date2ISO);
+
+//                     res.json({
+//                       date1: date1Data,
+//                       date2: date2Data
+//                     });
+//                   }
+//                 );
+//               }
+//             );
+//           }
+//         }
+//       );
+//     }
+//   );
+// });
+
 app.get("/get-machines-by-dates", (req, res) => {
   const { storeName, competitorName, category, date1, date2 } = req.query;
 
@@ -1038,81 +1148,38 @@ app.get("/get-machines-by-dates", (req, res) => {
           const isOwnStore = competitorName === "self"; // ✅ 自店判定
 
           if (isOwnStore) {
-            // ✅ 自店のデータを取得
             console.log("🔍 自店のデータ取得:", { storeId, categoryId, date1, date2 });
+
+            const date1UTC = new Date(date1).toISOString();
+            const date2UTC = new Date(date2).toISOString();
+            console.log("🕒 UTC形式:", { date1UTC, date2UTC });
 
             const machineQuery = `
               SELECT machine_name, quantity, updated_at
               FROM store_machine_data
               WHERE store_id = ? AND category_id = ?
-              AND DATE(updated_at) IN (?, ?)
+              AND (DATE(updated_at) = DATE(?) OR DATE(updated_at) = DATE(?))
               ORDER BY updated_at DESC, quantity DESC
             `;
 
             db.query(
               machineQuery,
-              [storeId, categoryId, date1, date2],
+              [storeId, categoryId, date1UTC, date2UTC],
               (err, results) => {
                 if (err) {
                   console.error("❌ データ取得エラー:", err);
                   return res.status(500).json({ error: "データ取得エラー" });
                 }
 
-                const date1ISO = new Date(date1).toISOString().split("T")[0];
-                const date2ISO = new Date(date2).toISOString().split("T")[0];
+                console.log("📊 検索結果:", results.length, "件ヒット");
 
-                const date1Data = results.filter(row => row.updated_at.toISOString().split("T")[0] === date1ISO);
-                const date2Data = results.filter(row => row.updated_at.toISOString().split("T")[0] === date2ISO);
+                const date1Data = results.filter(row => new Date(row.updated_at).toISOString().split("T")[0] === date1UTC.split("T")[0]);
+                const date2Data = results.filter(row => new Date(row.updated_at).toISOString().split("T")[0] === date2UTC.split("T")[0]);
 
                 res.json({
                   date1: date1Data,
                   date2: date2Data
                 });
-              }
-            );
-          } else {
-            // ✅ 競合店のデータを取得
-            db.query(
-              "SELECT id FROM competitor_stores WHERE store_id = ? AND competitor_name = ?",
-              [storeId, competitorName],
-              (err, compResult) => {
-                if (err || compResult.length === 0) {
-                  console.error("❌ エラー: 競合店が見つかりません", err);
-                  return res.status(400).json({ error: "競合店が見つかりません" });
-                }
-                const competitorId = compResult[0].id;
-
-                console.log("🔍 競合店のデータ取得:", { competitorId, categoryId, date1, date2 });
-
-                const machineQuery = `
-                  SELECT machine_name, quantity, updated_at
-                  FROM machine_data
-                  WHERE competitor_id = ? AND category_id = ?
-                  AND updated_at IN (?, ?)
-                  ORDER BY updated_at DESC, quantity DESC
-                `;
-
-                db.query(
-                  machineQuery,
-                  [competitorId, categoryId, date1, date2],
-                  (err, results) => {
-                    if (err) {
-                      console.error("❌ データ取得エラー:", err);
-                      return res.status(500).json({ error: "データ取得エラー" });
-                    }
-
-                    const date1ISO = new Date(date1).toISOString();
-                    const date2ISO = new Date(date2).toISOString();
-
-                    const date1Data = results.filter(row => row.updated_at.toISOString() === date1ISO);
-                    const date2Data = results.filter(row => row.updated_at.toISOString() === date2ISO);
-
-                    res.json({
-                      date1: date1Data,
-                      date2: date2Data
-                    });
-                  }
-                );
               }
             );
           }
