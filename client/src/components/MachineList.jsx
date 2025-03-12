@@ -120,10 +120,13 @@ function MachineList() {
   }, [API_URL, decodedStoreName, selectedCompetitor, selectedType]);
 
   // 🔹 JST変換関数を追加
+  // const formatDateToJSTString = (dateStr) => {
+  //   const date = new Date(dateStr);
+  //   const jstDate = new Date(date.getTime() + (9 * 60 * 60 * 1000)); // UTC → JST
+  //   return jstDate.toISOString().slice(0, 19).replace('T', ' ');
+  // };
   const formatDateToJSTString = (dateStr) => {
-    const date = new Date(dateStr);
-    const jstDate = new Date(date.getTime() + (9 * 60 * 60 * 1000)); // UTC → JST
-    return jstDate.toISOString().slice(0, 19).replace('T', ' ');
+    return dateStr; // 変換せずにそのまま返す
   };
 
   const navigateWithParams = (competitor, type) => {
