@@ -295,7 +295,8 @@ function insertOrUpdateMachineData(
   res,
   isOwnStore // true: 自店, false: 競合
 ) {
-  const updatedAt = new Date().toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
+  // const updatedAt = new Date().toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
+  const updatedAt = new Date().toISOString();
 
   const targetTable = isOwnStore ? "store_machine_data" : "machine_data";
   const totalUpdateTable = isOwnStore ? "stores" : "competitor_stores";
