@@ -10,27 +10,27 @@ app.use(express.json());
 app.use(cors());
 
 // MySQL接続設定
-// const db = mysql.createPool({
-//   host: process.env.DB_HOST,
-//   user: process.env.DB_USER,
-//   password: process.env.DB_PASSWORD,
-//   database: process.env.DB_NAME,
-//   charset: "utf8mb4" // 日本語対応
-// });
-
-// const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
-
-// MySQL (TiDB) データベース接続設定
 const db = mysql.createPool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
-  port: process.env.DB_PORT || 4000,
-  ssl: { rejectUnauthorized: true }  
+  charset: "utf8mb4" // 日本語対応
 });
 
-const FASTAPI_URL = process.env.FASTAPI_URL || "https://setchikishu-log-db-python.onrender.com";
+const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
+
+// MySQL (TiDB) データベース接続設定
+// const db = mysql.createPool({
+//   host: process.env.DB_HOST,
+//   user: process.env.DB_USER,
+//   password: process.env.DB_PASSWORD,
+//   database: process.env.DB_NAME,
+//   port: process.env.DB_PORT || 4000,
+//   ssl: { rejectUnauthorized: true }  
+// });
+
+// const FASTAPI_URL = process.env.FASTAPI_URL || "https://setchikishu-log-db-python.onrender.com";
 
 // db.connect(err => {
 //   if (err) {
@@ -1045,7 +1045,7 @@ app.get("/get-machines-by-dates", (req, res) => {
               SELECT machine_name, quantity, updated_at
               FROM store_machine_data
               WHERE store_id = ? AND category_id = ?
-              AND updated_at IN (?, ?)
+              AND DATE(updated_at) IN (?, ?)
               ORDER BY updated_at DESC, quantity DESC
             `;
 
