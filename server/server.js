@@ -3,34 +3,30 @@ require("dotenv").config(); // 環境変数を読み込む
 const express = require("express");
 const cors = require("cors");
 const mysql = require("mysql2");
-const axios = require("axios");
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));  // 🚀 10MB まで許可
+app.use(express.urlencoded({ limit: "10mb", extended: true }));  // URLエンコードデータの制限も追加
 app.use(cors());
 
 // MySQL接続設定
-// const db = mysql.createPool({
-//   host: process.env.DB_HOST,
-//   user: process.env.DB_USER,
-//   password: process.env.DB_PASSWORD,
-//   database: process.env.DB_NAME,
-//   charset: "utf8mb4" // 日本語対応
-// });
-
-// const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
-
-// MySQL (TiDB) データベース接続設定
 const db = mysql.createPool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
-  port: process.env.DB_PORT || 4000,
-  ssl: { rejectUnauthorized: true }  
+  charset: "utf8mb4" // 日本語対応
 });
 
-const FASTAPI_URL = process.env.FASTAPI_URL || "https://setchikishu-log-db-python.onrender.com";
+// MySQL (TiDB) データベース接続設定
+// const db = mysql.createPool({
+//   host: process.env.DB_HOST,
+//   user: process.env.DB_USER,
+//   password: process.env.DB_PASSWORD,
+//   database: process.env.DB_NAME,
+//   port: process.env.DB_PORT || 4000,
+//   ssl: { rejectUnauthorized: true }  
+// });
 
 // db.connect(err => {
 //   if (err) {
@@ -55,467 +51,506 @@ const checkDbConnection = () => {
 
 // 📌 総台数の差を確認し登録作業を進めるAPI
 app.post("/add-machine", (req, res) => {
-  const { storeName, competitorName, category, machines, isOwnStore } = req.body;
+  const { storeName, competitorName, categories, isOwnStore } = req.body;
+
+  console.log("🚀 API 呼び出し: /add-machine");
+  console.log("📥 受信データ:", { storeName, competitorName, categories, isOwnStore });
 
   db.query("SELECT id FROM stores WHERE store_name = ?", [storeName], (err, storeResult) => {
     if (err || storeResult.length === 0) {
-      console.error("❌ エラー: 自店が見つかりません");
+      console.error("❌ エラー: 自店が見つかりません -", storeName);
       return res.status(400).json({ error: "自店が見つかりません" });
     }
     const storeId = storeResult[0].id;
+    console.log("✅ 自店取得成功 - storeId:", storeId);
 
-    db.query("SELECT id FROM categories WHERE category_name = ?", [category], (err, catResult) => {
-      if (err || catResult.length === 0) {
-        console.error("❌ エラー: カテゴリーが見つかりません");
-        return res.status(400).json({ error: "カテゴリーが見つかりません" });
-      }
-      const categoryId = catResult[0].id;
-
-      const totalQuantity = machines.reduce((sum, { quantity }) => sum + quantity, 0);
-      console.log(`📊 総台数 (${category}): ${totalQuantity}`);
-
-      if (isOwnStore) {
-        checkAndInsert(
-          storeId,
-          "stores",
-          totalQuantity,
-          category,
-          categoryId,
-          machines,
-          res,
-          true  // ✅ isOwnStore
-        );
-      } else {
-        db.query(
-          "SELECT id FROM competitor_stores WHERE store_id = ? AND competitor_name = ?",
-          [storeId, competitorName],
-          (err, compResult) => {
-            if (err || compResult.length === 0) {
-              console.error("❌ エラー: 競合店が見つかりません");
-              return res.status(400).json({ error: "競合店が見つかりません" });
-            }
-            const competitorId = compResult[0].id;
-            checkAndInsert(
-              competitorId,
-              "competitor_stores",
-              totalQuantity,
-              category,
-              categoryId,
-              machines,
-              res,
-              false  // ✅ isOwnStore
-            );
-          }
-        );
-      }
-    });
-  });
-});
-
-function checkAndInsert(
-  targetId,          // storeId or competitorId
-  targetTable,       // "stores" or "competitor_stores"
-  totalQuantity,
-  category,
-  categoryId,
-  machines,
-  res,
-  isOwnStore        // ✅ 追加
-) {
-  const idColumn = "id"; // 両方idなので固定
-
-  const checkQuery = `SELECT \`${category}\` AS currentTotal FROM ${targetTable} WHERE ${idColumn} = ?`;
-
-  db.query(checkQuery, [targetId], (err, checkResult) => {
-    if (err) {
-      console.error("❌ 現在の総台数取得エラー:", err);
-      return res.status(500).json({ error: "総台数取得エラー" });
-    }
-
-    const currentTotal = checkResult[0]?.currentTotal || 0;
-    const difference = Math.abs(currentTotal - totalQuantity);
-
-    if (difference >= 1) {
-      return res.json({
-        message: `総台数に差異があります (${currentTotal} → ${totalQuantity})。\n確認してください。`,
-        needsTotalQuantityConfirmation: true,
-        isOwnStore,
-        targetId,  // storeId or competitorId
-        category,
-        categoryId,
-        currentTotal,
-        totalQuantity,
-        machines,
-      });
-    }
-
-    // ✅ insertOrUpdateMachineDataを呼び出し
-    insertOrUpdateMachineData(
-      targetId,
-      category,
-      categoryId,
-      totalQuantity,
-      machines,
-      res,
-      isOwnStore
-    );
-  });
-}
-
-// 📌 総台数確認後に登録作業を進めるAPI
-app.post("/confirm-add-machine", (req, res) => {
-  const { storeName, competitorName, category, machines, isOwnStore } = req.body;
-
-  if (!storeName || !category || !machines || machines.length === 0) {
-    console.error("❌ エラー: 必要なデータが不足しています");
-    return res.status(400).json({ error: "必要なデータが不足しています" });
-  }
-
-  db.query("SELECT id FROM stores WHERE store_name = ?", [storeName], (err, storeResult) => {
-    if (err || storeResult.length === 0) {
-      console.error("❌ エラー: 自店が見つかりません");
-      return res.status(400).json({ error: "自店が見つかりません" });
-    }
-    const storeId = storeResult[0].id;
-
-    db.query("SELECT id FROM categories WHERE category_name = ?", [category], (err, catResult) => {
-      if (err || catResult.length === 0) {
-        console.error("❌ エラー: カテゴリーが見つかりません");
-        return res.status(400).json({ error: "カテゴリーが見つかりません" });
-      }
-      const categoryId = catResult[0].id;
-
-      const totalQuantity = machines.reduce((sum, { quantity }) => sum + quantity, 0);
-
-      if (isOwnStore) {
-        console.log("🛠 自店用登録処理:", { storeId, category, categoryId, totalQuantity, machines });
-        insertOrUpdateMachineData(storeId, category, categoryId, totalQuantity, machines, res, true);
-      } else {
-        if (!competitorName) {
-          console.error("❌ エラー: 競合店名がありません");
-          return res.status(400).json({ error: "競合店名がありません" });
-        }
-
-        db.query("SELECT id FROM competitor_stores WHERE store_id = ? AND competitor_name = ?", 
-          [storeId, competitorName], (err, compResult) => {
+    // 🔹 競合店のIDを取得（isOwnStoreがfalseの場合のみ）
+    if (!isOwnStore) {
+      db.query(
+        "SELECT id FROM competitor_stores WHERE store_id = ? AND competitor_name = ?",
+        [storeId, competitorName],
+        (err, compResult) => {
           if (err || compResult.length === 0) {
-            console.error("❌ エラー: 競合店が見つかりません");
+            console.error("❌ エラー: 競合店が見つかりません -", competitorName);
             return res.status(400).json({ error: "競合店が見つかりません" });
           }
           const competitorId = compResult[0].id;
+          console.log("✅ 競合店取得成功 - competitorId:", competitorId);
 
-          console.log("🛠 競合店用登録処理:", { competitorId, category, categoryId, totalQuantity, machines });
-          insertOrUpdateMachineData(competitorId, category, categoryId, totalQuantity, machines, res, false);
-        });
-      }
-    });
+          // 🔹 カテゴリーごとに処理を実行
+          processCategories(competitorId, "competitor_stores", categories, res, isOwnStore);
+        }
+      );
+    } else {
+      // 🔹 自店の場合、カテゴリーごとに処理を実行
+      processCategories(storeId, "stores", categories, res, isOwnStore);
+    }
   });
 });
 
-// 📌 UIで確認後にデータを更新するAPI
-app.post("/confirm-update-machine", (req, res) => {
-  const {
-    isOwnStore,
-    targetId,  // storeId or competitorId
-    category,
-    categoryId,
-    machines,
-    machinesStage4,
-    updatedAt
-  } = req.body;
+// 🔹 カテゴリーの処理関数
+function processCategories(targetId, targetTable, categories, res, isOwnStore) {
+  const categoryPromises = categories.map(({ category, machines }) => {
+    return new Promise((resolve, reject) => {
+      db.query("SELECT id FROM categories WHERE category_name = ?", [category], (err, catResult) => {
+        if (err || catResult.length === 0) {
+          console.error("❌ エラー: カテゴリーが見つかりません -", category);
+          return reject(new Error(`カテゴリーが見つかりません (${category})`));
+        }
+        const categoryId = catResult[0].id;
+        console.log("✅ カテゴリー取得成功 - categoryId:", categoryId);
 
-  if (!targetId || !category || !categoryId || !Array.isArray(machines) || !Array.isArray(machinesStage4)) {
+        const totalQuantity = machines.reduce((sum, { quantity }) => sum + quantity, 0);
+        console.log(`📊 総台数 (${category}): ${totalQuantity}`);
+
+        checkAndInsert(targetId, targetTable, totalQuantity, category, categoryId, machines, isOwnStore)
+          .then(resolve)
+          .catch(reject);
+      });
+    });
+  });
+
+  Promise.all(categoryPromises)
+    .then(results => {
+      const needsConfirmation = results.some(r => r.needsTotalQuantityConfirmation);
+      const missingSisCodes = results.flatMap(r => r.missingSisCodes || []);
+
+      if (needsConfirmation) {
+        console.warn("⚠️ 総台数に差異があります。フロントエンドに通知。");
+        return res.json({
+          message: "総台数に差異があります。確認してください。",
+          categories: results.filter(r => r.needsTotalQuantityConfirmation),
+          missingSisCodes
+        });
+      }
+
+      console.log("✅ すべてのデータが正常に登録されました。");
+      res.json({
+        message: "データ登録成功",
+        missingSisCodes
+      });
+    })
+    .catch(error => {
+      console.error("❌ エラー:", error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: error.message });
+      }
+    });
+}
+
+function checkAndInsert(targetId, targetTable, totalQuantity, category, categoryId, machines, isOwnStore) {
+  return new Promise((resolve, reject) => {
+    const idColumn = "id"; 
+
+    console.log(`🛠 データチェック: targetTable=${targetTable}, idColumn=${idColumn}, targetId=${targetId}, category=${category}`);
+
+    db.query(`SHOW COLUMNS FROM ${targetTable}`, (err, columns) => {
+      if (err) {
+        console.error("❌ カラムリスト取得エラー:", err);
+        return reject(new Error("カラムリスト取得エラー"));
+      }
+
+      if (!columns.map(col => col.Field).includes(category)) {
+        console.error(`❌ エラー: ${targetTable} にカラム '${category}' が存在しません`);
+        return reject(new Error(`カラム '${category}' が存在しません`));
+      }
+
+      const checkQuery = `SELECT \`${category}\` AS currentTotal FROM ${targetTable} WHERE ${idColumn} = ?`;
+
+      db.query(checkQuery, [targetId], (err, checkResult) => {
+        if (err) {
+          console.error("❌ 現在の総台数取得エラー:", err);
+          return reject(new Error("総台数取得エラー"));
+        }
+
+        const currentTotal = checkResult[0]?.currentTotal || 0;
+        console.log(`📊 取得した現在の総台数 (category=${category}): ${currentTotal}`);
+
+        const difference = totalQuantity - currentTotal;
+
+        if (difference !== 0) {
+          return resolve({
+            message: `総台数に差異があります (${currentTotal} → ${totalQuantity})。\n確認してください。`,
+            needsTotalQuantityConfirmation: true,
+            isOwnStore,
+            targetId,
+            category,
+            categoryId,
+            currentTotal,
+            totalQuantity,
+            difference,
+            machines,
+          });
+        }
+
+        insertMachineData(targetId, categoryId, machines, isOwnStore)
+          .then(result => {
+            resolve({
+              needsTotalQuantityConfirmation: false,
+              missingSisCodes: result.missingSisCodes
+            });
+          })
+          .catch(reject);
+      });
+    });
+  });
+}
+
+app.post("/confirm-insert", (req, res) => {
+  console.log("🚀 API 呼び出し: /confirm-insert");
+  console.log("📥 受信データ:", req.body);
+
+  const { storeName, competitorName, categories, isOwnStore } = req.body;
+
+  if (!storeName || !categories || categories.length === 0) {
+    console.error("❌ エラー: 必要なデータが不足");
     return res.status(400).json({ error: "必要なデータが不足しています" });
   }
 
-  const targetTable = isOwnStore ? "store_machine_data" : "machine_data";
-  const idColumn = isOwnStore ? "store_id" : "competitor_id";
+  // **`storeId` を取得**
+  db.query("SELECT id FROM stores WHERE store_name = ?", [storeName], (err, storeResult) => {
+    if (err || storeResult.length === 0) {
+      console.error("❌ エラー: 自店が見つかりません -", storeName);
+      return res.status(400).json({ error: "自店が見つかりません" });
+    }
+    const storeId = storeResult[0].id;
+    console.log("✅ 自店取得成功 - storeId:", storeId);
 
-  const updatePromises = [];
+    // 🔹 競合店の ID を取得（`isOwnStore === false` の場合のみ）
+    if (!isOwnStore) {
+      db.query(
+        "SELECT id FROM competitor_stores WHERE store_id = ? AND competitor_name = ?",
+        [storeId, competitorName],
+        (err, compResult) => {
+          if (err || compResult.length === 0) {
+            console.error("❌ エラー: 競合店が見つかりません -", competitorName);
+            return res.status(400).json({ error: "競合店が見つかりません" });
+          }
+          const competitorId = compResult[0].id;
+          console.log("✅ 競合店取得成功 - competitorId:", competitorId);
 
-  const insertNameCollection = (inputName, sis_code) => {
+          // **データ登録処理**
+          registerMachineData(competitorId, categories, isOwnStore, res, "competitor_stores");
+        }
+      );
+    } else {
+      // **自店のデータを登録**
+      registerMachineData(storeId, categories, isOwnStore, res, "stores");
+    }
+  });
+});
+
+function registerMachineData(targetId, categories, isOwnStore, res, targetTable) {
+  const categoryPromises = categories.map(({ category, machines, totalQuantity }) => {
     return new Promise((resolve, reject) => {
-      const getMachineNameSql = "SELECT sis_machine_name FROM sis_machine_data WHERE sis_machine_code = ?";
-      db.query(getMachineNameSql, [sis_code], (err, result) => {
-        if (err) return reject(err);
+      // 🔹 `category_name` から `categoryId` を取得
+      db.query("SELECT id FROM categories WHERE category_name = ?", [category], (err, catResult) => {
+        if (err || catResult.length === 0) {
+          console.error("❌ エラー: カテゴリーが見つかりません -", category);
+          return reject(new Error(`カテゴリーが見つかりません (${category})`));
+        }
+        const categoryId = catResult[0].id;
+        console.log("✅ カテゴリー取得成功 - categoryId:", categoryId);
 
-        const sis_machine_name = result.length > 0 ? result[0].sis_machine_name : null;
-        const insertSql = `
-          INSERT INTO name_collection (dotcom_machine_name, sis_code, sis_machine_name, sis_registration_date)
-          VALUES (?, ?, ?, ?)
+        // 🔹 `insertMachineData()` を実行
+        insertMachineData(targetId, categoryId, machines, isOwnStore)
+          .then(({ message, missingSisCodes }) => {
+            // 🔹 `totalQuantity` を `competitor_stores` または `stores` に更新
+            updateTotalQuantity(targetTable, targetId, category, totalQuantity)
+              .then(() => resolve({ category, message, missingSisCodes }))
+              .catch(reject);
+          })
+          .catch(reject);
+      });
+    });
+  });
+
+  Promise.all(categoryPromises)
+    .then(results => {
+      // 🔹 すべてのカテゴリーの処理が完了
+      const missingSisCodes = results.flatMap(r => r.missingSisCodes || []);
+
+      console.log("✅ すべてのカテゴリーのデータ登録が完了");
+
+      return res.json({
+        message: "登録完了",
+        missingSisCodes,
+      });
+    })
+    .catch(error => {
+      console.error("❌ エラー:", error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: error.message });
+      }
+    });
+}
+
+function updateTotalQuantity(targetTable, targetId, category, totalQuantity) {
+  return new Promise((resolve, reject) => {
+    const updateQuery = `UPDATE ${targetTable} SET \`${category}\` = ? WHERE id = ?`;
+    
+    db.query(updateQuery, [totalQuantity, targetId], (err, result) => {
+      if (err) {
+        console.error(`❌ 台数更新エラー (${category}):`, err);
+        return reject(new Error(`台数更新エラー (${category})`));
+      }
+      console.log(`✅ 台数更新成功 (${category}):`, totalQuantity);
+      resolve();
+    });
+  });
+}
+
+// 🔹 文字列正規化処理（空白・記号を削除）
+function normalizeText(text) {
+  return text
+    .replace(/　/g, " ")  // 全角スペース → 半角スペース
+    .replace(/[~〜～]/g, "")  // 波ダッシュ系削除
+    .replace(/[【】\[\]]/g, "")  // 角カッコ削除
+    .replace(/[‐－ｰ\-]/g, "")  // ハイフン・長音記号削除
+    .replace(/[\/／\\＼]/g, "")  // スラッシュ & バックスラッシュ削除
+    .replace(/\./g, "")
+    .replace(/[:：]/g, "")  // **半角・全角の「：」を削除**
+    .replace(/\s+/g, "")  // 余分なスペース削除
+    .trim();
+}
+
+// 🔹 `sis_code` を取得しながら `INSERT`
+function insertMachineData(targetId, categoryId, machines, isOwnStore) {
+  return new Promise((resolve, reject) => {
+    const targetTable = isOwnStore ? "store_machine_data" : "machine_data";
+    const idColumn = isOwnStore ? "store_id" : "competitor_id";
+
+    const machineQueries = machines.map(({ machine, quantity, aliases }) => {
+      return new Promise((resolveMachine) => {
+        if (!Array.isArray(aliases) || aliases.length === 0) {
+          aliases = [];
+        }
+
+        // 🔹 `aliases` & `machine` を正規化し、空文字を除去
+        const cleanedAliases = aliases.map(normalizeText).filter(alias => alias !== "");
+        const cleanedMachine = normalizeText(machine);
+        const searchTerms = Array.from(new Set([cleanedMachine, ...cleanedAliases]));
+
+        // **完全一致検索**
+        const exactMatchQuery = `
+          SELECT sis_machine_code, sis_machine_name FROM sis_machine_data
+          WHERE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+                    sis_machine_name, '　', ''), ' ', ''), '【', ''), '】', ''), '~', ''), '〜', ''), '～', ''), '-', ''), '‐', ''), '－', ''), 'ｰ', ''), '／', ''), '/', ''), '\', ''), '＼', ''), '.', ''), '：', ''), ':', ''), '[', ''), ']', '')     
+          IN (${searchTerms.map(() => "?").join(", ")})
+          LIMIT 1
         `;
-        db.query(insertSql, [inputName, sis_code, sis_machine_name, updatedAt], (err, result) => {
-          if (err) return reject(err);
-          resolve(result.insertId);
+
+        db.query(exactMatchQuery, searchTerms, (err, result) => {
+          if (err) {
+            console.error("❌ `sis_code` 取得エラー:", err);
+            return resolveMachine({ machine, quantity, sis_code: null, aliases });
+          }
+
+          if (result.length > 0) {
+            return resolveMachine({
+              machine,
+              quantity,
+              sis_code: result[0].sis_machine_code,
+              aliases,
+            });
+          }
+
+          // **完全一致で見つからなかった場合、厳しめの部分一致検索**
+          console.warn(`⚠️ 完全一致なし: ${machine} (正規化後: ${cleanedMachine})`);
+
+          const strictPartialMatchQuery = `
+            SELECT sis_machine_code, sis_machine_name 
+            FROM sis_machine_data
+            WHERE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+                    sis_machine_name, '　', ''), ' ', ''), '【', ''), '】', ''), '~', ''), '〜', ''), '～', ''), '-', ''), '‐', ''), '－', ''), 'ｰ', ''), '／', ''), '/', ''), '\', ''), '＼', ''), '.', ''), '：', ''), ':', ''), '[', ''), ']', '')
+            LIKE ? 
+            OR REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+                    sis_machine_name, '　', ''), ' ', ''), '【', ''), '】', ''), '~', ''), '〜', ''), '～', ''), '-', ''), '‐', ''), '－', ''), 'ｰ', ''), '／', ''), '/', ''), '\', ''), '＼', ''), '.', ''), '：', ''), ':', ''), '[', ''), ']', '')
+            LIKE ? 
+            ORDER BY LENGTH(REGEXP_REPLACE(sis_machine_name, '【.*?】', '')) ASC
+            LIMIT 1;
+          `;
+
+          const partialSearchTerms = [`%${cleanedMachine}%`, `%${cleanedMachine}%`];
+
+          db.query(strictPartialMatchQuery, partialSearchTerms, (err, strictPartialResult) => {
+            if (err) {
+              console.error("❌ 厳しめ部分一致検索エラー:", err);
+              return resolveMachine({ machine, quantity, sis_code: null, aliases });
+            }
+
+            console.log("🔍 厳しめ部分一致検索結果:", strictPartialResult);
+
+            if (strictPartialResult.length > 0) {
+              console.log(`✅ 厳しめ部分一致取得: ${machine} → ${strictPartialResult[0].sis_machine_code} (DB名: ${strictPartialResult[0].sis_machine_name})`);
+              return resolveMachine({
+                machine,
+                quantity,
+                sis_code: strictPartialResult[0].sis_machine_code,
+                aliases,
+              });
+            }
+
+            console.warn(`⚠️ 厳しめ部分一致も見つからず: ${machine} (正規化後: ${cleanedMachine})`);
+
+            // **厳しめ部分一致でも見つからなかった場合、通常の部分一致検索**
+            const partialMatchQuery = `
+              SELECT sis_code, dotcom_machine_name FROM name_collection
+              WHERE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+                    dotcom_machine_name, '　', ''), ' ', ''), '【', ''), '】', ''), '~', ''), '〜', ''), '～', ''), '-', ''), '‐', ''), '－', ''), 'ｰ', ''), '／', ''), '/', ''), '\', ''), '＼', ''), '.', ''), '：', ''), ':', ''), '[', ''), ']', '')
+              COLLATE utf8mb4_general_ci
+              LIKE CONCAT('%', ?, '%')
+              ORDER BY LENGTH(REGEXP_REPLACE(dotcom_machine_name, '【.*?】', '')) ASC
+              LIMIT 1
+            `;
+
+            db.query(partialMatchQuery, [cleanedMachine], (err, partialResult) => {
+              if (err) {
+                console.error("❌ 部分一致検索エラー:", err);
+                return resolveMachine({ machine, quantity, sis_code: null, aliases });
+              }
+
+              if (partialResult.length > 0) {
+                console.log(`✅ 部分一致取得: ${machine} → ${partialResult[0].sis_code} (DB名: ${partialResult[0].dotcom_machine_name})`);
+                return resolveMachine({
+                  machine,
+                  quantity,
+                  sis_code: partialResult[0].sis_code,
+                  aliases,
+                });
+              }
+
+              console.warn(`⚠️ 部分一致も見つからず: ${machine} (正規化後: ${cleanedMachine})`);
+              resolveMachine({ machine, quantity, sis_code: null, aliases });
+            });
+          });
         });
       });
     });
-  };
 
-  const updateMachineData = (inputName, name_collection_id, sis_code, updatedAt) => {
+    Promise.all(machineQueries).then((machineResults) => {
+      const updatedAt = new Date().toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" }); // 🔹 `updated_at` をここで定義
+      const missingSisCodes = machineResults
+        .filter(m => m.sis_code === null)
+        .map(({ machine, quantity }) => ({ 
+          machine, 
+          quantity, 
+          updated_at: updatedAt // 🔹 `updated_at` を適切にセット
+        })); 
+
+      if (missingSisCodes.length > 0) {
+        console.warn("⚠️ 未登録の `sis_code` のデータ:", missingSisCodes);
+      }
+
+      if (machineResults.length === 0) {
+        console.warn("⚠️ 登録するデータがありません");
+        return resolve({ message: "データ登録なし", missingSisCodes: [] });
+      }
+
+      const values = machineResults.map(({ machine, quantity, sis_code }) => [
+        targetId,
+        categoryId,
+        machine,
+        quantity,
+        updatedAt, // 🔹 `updated_at` を適切に使用
+        sis_code || null
+      ]);
+
+      const insertQuery = `
+        INSERT INTO ${targetTable} 
+        (${idColumn}, category_id, machine_name, quantity, updated_at, sis_code)
+        VALUES ?
+      `;
+
+      db.query(insertQuery, [values], (err) => {
+        if (err) {
+          console.error("❌ データ登録エラー:", err);
+          return reject(err);
+        }
+
+        resolve({ message: "データ登録成功", missingSisCodes });
+      });
+    }).catch((err) => {
+          console.error("❌ `insertMachineData` 処理エラー:", err);
+          reject(err);
+    });
+  });
+}
+
+app.post("/update-missing-sis-code", (req, res) => {
+  const { machines, isOwnStore } = req.body;
+
+  if (!Array.isArray(machines) || machines.length === 0) {
+    return res.status(400).json({ error: "更新するデータがありません" });
+  }
+
+  // 🔹 自店なら `store_machine_data`、競合店なら `machine_data` を更新
+  const targetTable = isOwnStore ? "store_machine_data" : "machine_data";
+
+  const updatePromises = machines.map(({ machine, sis_code, updated_at }) => {
     return new Promise((resolve, reject) => {
       const updateSql = `
         UPDATE ${targetTable}
-        SET name_collection_id = ?, sis_code = ?, updated_at = ?
-        WHERE ${idColumn} = ? AND machine_name = ?
+        SET sis_code = ?
+        WHERE machine_name = ? AND sis_code IS NULL AND updated_at = ?
       `;
-      db.query(updateSql, [name_collection_id, sis_code, updatedAt, targetId, inputName], (err) => {
+
+      db.query(updateSql, [sis_code, machine, updated_at], (err, result) => {
         if (err) return reject(err);
-        resolve();
+        
+        if (result.affectedRows === 0) {
+          console.warn(`⚠️ 更新対象なし: ${machine} (updated_at: ${updated_at})`);
+          return resolve();
+        }
+
+        // 🔹 `name_collection` にデータを追加
+        insertNameCollection(machine, sis_code, updated_at)
+          .then(() => resolve())
+          .catch(reject);
       });
     });
-  };
-
-  const processMachines = (machines) => {
-    return machines.map(({ inputName, sis_code }) => {
-      return insertNameCollection(inputName, sis_code)
-        .then((name_collection_id) => updateMachineData(inputName, name_collection_id, sis_code, updatedAt));
-    });
-  };
-
-  updatePromises.push(...processMachines(machines));
-  updatePromises.push(...processMachines(machinesStage4));
+  });
 
   Promise.all(updatePromises)
-    .then(() => {
-      res.json({ message: "登録完了" });
-    })
+    .then(() => res.json({ message: "更新完了" }))
     .catch((err) => {
       console.error("❌ 更新エラー:", err);
       res.status(500).json({ error: "更新エラー" });
     });
 });
 
-// データを更新する関数**
-function insertOrUpdateMachineData(
-  targetId, // competitorId or storeId
-  category,
-  categoryId,
-  totalQuantity,
-  machines,
-  res,
-  isOwnStore // true: 自店, false: 競合
-) {
-  // const updatedAt = new Date().toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
-  const updatedAt = new Date().toISOString();
+/**
+ * `name_collection` テーブルにデータを追加
+ */
+const insertNameCollection = (inputName, sis_code, updatedAt) => {
+  return new Promise((resolve, reject) => {
+    const getMachineNameSql = "SELECT sis_machine_name FROM sis_machine_data WHERE sis_machine_code = ?";
+    
+    db.query(getMachineNameSql, [sis_code], (err, result) => {
+      if (err) return reject(err);
 
-  const targetTable = isOwnStore ? "store_machine_data" : "machine_data";
-  const totalUpdateTable = isOwnStore ? "stores" : "competitor_stores";
-  const idColumn = isOwnStore ? "store_id" : "competitor_id";
-  const responseIdKey = isOwnStore ? "storeId" : "competitorId";
-
-  function basicNormalize(text) {
-    return text
-      .replace(/[Ａ-Ｚａ-ｚ０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xFEE0))
-      .replace(/　/g, ' ')
-      .replace(/[~〜～]/g, '')
-      .replace(/[【】\[\]]/g, '')
-      .replace(/[‐－ｰ\-]/g, '')
-      .replace(/[\/／]/g, '')
-      .replace(/\s+/g, '')
-      .trim();
-  }
-
-  function gameSpecificNormalize(text) {
-    return text
-      .replace(/ぱちんこ|パチンコ/gi, '')
-      .replace(/^(.\b)?パチスロ/i, '$1')
-      .replace(/^(.\b)?ﾊﾟﾁｽﾛ/i, '$1')
-      .replace(/^(.\b)?スロット/i, '$1')
-      .replace(/^(.\b)?ｽﾛｯﾄ/i, '$1')
-      .replace(/^PACHISLOT|^pachislot/i, '')
-      .replace(/^SLOT|^slot/i, '')
-      .trim();
-  }
-
-  const cleanedMachines = machines.map(({ machine, quantity }) => ({
-    originalName: machine,
-    stage1Clean: basicNormalize(machine),
-    stage2Clean: gameSpecificNormalize(basicNormalize(machine)),
-    quantity
-  }));
-
-  const queries = cleanedMachines.map(({ originalName, stage1Clean, stage2Clean, quantity }) => {
-    return new Promise((resolve, reject) => {
-      const query = `
-        SELECT id, sis_code FROM name_collection 
-        WHERE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
-          dotcom_machine_name, '-', ''), '‐', ''), '－', ''), ' ', ''), '　', ''), '~', ''), '〜', ''), '～', ''), '【', ''), '】', '') , '[', ''), ']', ''), '/', ''), '／', '')
-        COLLATE utf8mb4_unicode_ci
-        LIKE CONCAT('%', ?, '%')
-        ORDER BY LENGTH(REGEXP_REPLACE(dotcom_machine_name, '【.*?】', '')) ASC 
-        LIMIT 1
+      const sis_machine_name = result.length > 0 ? result[0].sis_machine_name : null;
+      const insertSql = `
+        INSERT INTO name_collection (dotcom_machine_name, sis_code, sis_machine_name, sis_registration_date)
+        VALUES (?, ?, ?, ?)
       `;
 
-      db.query(query, [stage1Clean], (err, stage1Result) => {
+      db.query(insertSql, [inputName, sis_code, sis_machine_name, updatedAt], (err, result) => {
         if (err) return reject(err);
-        if (stage1Result.length > 0) 
-          return resolve({
-          inputName: originalName,
-          name_collection_id: stage1Result[0].id,
-          sis_code: stage1Result[0].sis_code,
-          matchStage: 1,
-          quantity
-        });
-
-        db.query(query, [stage2Clean], (err, stage2Result) => {
-          if (err) return reject(err);
-          if (stage2Result.length > 0) 
-            return resolve({
-              inputName: originalName,
-              name_collection_id: stage2Result[0].id,
-              sis_code: stage2Result[0].sis_code,
-              matchStage: 2,
-              quantity
-            });
-
-          axios.get(`${FASTAPI_URL}/search?name=${encodeURIComponent(stage2Clean)}`)
-          .then(response => {
-            if (response.data.matchStage === 4) { // 🔹 ステージ4（マッチしなかった場合）
-              return resolve({
-                inputName: originalName,
-                name_collection_id: null,
-                sis_code: null,
-                matchStage: 4, // ステージ4として管理
-                quantity
-              });
-            }
-
-            return resolve({
-              inputName: originalName,
-              name_collection_id: response.data.id,
-              sis_code: response.data.sis_code,
-              matchStage: 3, // ステージ3
-              quantity
-            });
-          })
-          .catch(error => {
-            console.error("❌ Python API 呼び出しエラー:", error);
-            return resolve({
-              inputName: originalName,
-              name_collection_id: null,
-              sis_code: null,
-              matchStage: 4, // ステージ4（エラー時も含める）
-              quantity
-            });
-          });
-        });
+        resolve(result.insertId);
       });
     });
   });
-
-  Promise.all(queries)
-  .then(results => {
-    const stage1And2 = results.filter(r => r.matchStage === 1 || r.matchStage === 2);
-    const stage3 = results.filter(r => r.matchStage === 3);
-    const stage4 = results.filter(r => r.matchStage === 4);
-
-    const allConfirmedMachines = [...stage1And2, ...stage3, ...stage4];
-
-    if (allConfirmedMachines.length > 0) {
-      const values = allConfirmedMachines.map(({ inputName, name_collection_id, sis_code, quantity }) => [
-        targetId, categoryId, inputName, name_collection_id || null, sis_code || null, quantity, updatedAt
-      ]);
-
-      db.query(`
-        INSERT INTO ${targetTable} 
-        (${idColumn}, category_id, machine_name, name_collection_id, sis_code, quantity, updated_at) 
-        VALUES ? 
-        ON DUPLICATE KEY UPDATE quantity = VALUES(quantity), updated_at = VALUES(updated_at)
-      `, [values], (err) => {
-        if (err) {
-          console.error("❌ データ登録エラー:", err);
-          return res.status(500).json({ error: "データ登録エラー" });
-        }
-        console.log(`✅ ${targetTable} への登録成功`);
-      });
-    }
-
-    const totalUpdateQuery = `UPDATE ${totalUpdateTable} SET \`${category}\` = ? WHERE id = ?`;
-    db.query(totalUpdateQuery, [totalQuantity, targetId], (err) => {
-      if (err) {
-        console.error("❌ 総台数の更新エラー:", err);
-        return res.status(500).json({ error: "総台数の更新エラー" });
-      }
-      console.log(`✅ 総台数 (${category}) を ${totalQuantity} に更新しました`);
-    });
-
-    const responseIdKey = isOwnStore ? "storeId" : "competitorId";
-    const baseResponse = {
-      message: "確認が必要なデータがあります",
-      needsStage3Confirmation: stage3.length > 0,
-      needsStage4Confirmation: stage4.length > 0,
-      [responseIdKey]: targetId,
-      category,
-      categoryId,
-      totalQuantity,
-      machines: stage3,
-      machinesStage4: stage4,
-      updatedAt
-    };
-
-    const nameCollectionIds = stage3.map(r => r.name_collection_id).filter(id => id !== null);
-
-    if (stage3.length === 0 && stage4.length === 0) {
-      return res.json({
-        message: "登録完了（ステージ3・4の確認は不要）",
-        [responseIdKey]: targetId,
-        category,
-        categoryId,
-        totalQuantity,
-        updatedAt
-      });
-    }
-
-    if (nameCollectionIds.length > 0) {
-      db.query(`SELECT id, sis_code FROM name_collection WHERE id IN (?)`, [nameCollectionIds], (err, sisCodeResults) => {
-        if (err) {
-          console.error("❌ name_collection から sis_code の取得エラー:", err);
-          return res.status(500).json({ error: "sis_code の取得エラー" });
-        }
-
-        const sisCodes = sisCodeResults.map(row => row.sis_code).filter(code => code !== null);
-
-        if (sisCodes.length === 0) {
-          console.log("❌ name_collection から取得した sis_code が空です");
-          return res.json({ ...baseResponse, machineDetails: [] });
-        }
-
-        db.query(`
-          SELECT sis_machine_code, sis_type_code, cr_category, sis_maker_code, sis_machine_name
-          FROM sis_machine_data
-          WHERE sis_machine_code IN (?)
-        `, [sisCodes], (err, machineDetails) => {
-          if (err) {
-            console.error("❌ sis_machine_data の取得エラー:", err);
-            return res.status(500).json({ error: "機種情報取得エラー" });
-          }
-
-          console.log(`🛠 ${targetTable} で送るデータ:`, {
-            ...baseResponse,
-            machineDetails
-          });
-
-          return res.json({ ...baseResponse, machineDetails });
-        });
-      });
-    } else {
-      return res.json({ ...baseResponse, machineDetails: [] });
-    }
-  })
-  .catch(err => {
-    console.error("❌ データ処理エラー:", err);
-    res.status(500).json({ error: "データ処理エラー" });
-  });
-}
+};
 
 // 📌 自店と競合店を取得するAPI
 app.get("/get-stores", (req, res) => {
   const query = `
-    SELECT s.store_name, GROUP_CONCAT(c.competitor_name) AS competitors
+    SELECT s.id, s.store_name, GROUP_CONCAT(c.competitor_name ORDER BY c.competitor_name) AS competitors
     FROM stores s
     LEFT JOIN competitor_stores c ON s.id = c.store_id
-    GROUP BY s.store_name;
+    GROUP BY s.id, s.store_name
+    ORDER BY s.id ASC;  -- 🔹 id の昇順に並び替え
   `;
 
   db.query(query, (err, results) => {
@@ -525,6 +560,7 @@ app.get("/get-stores", (req, res) => {
 
     // フォーマットを調整
     const storeList = results.map(row => ({
+      id: row.id,
       name: row.store_name,
       competitors: row.competitors ? row.competitors.split(",") : []
     }));
@@ -1013,116 +1049,6 @@ app.get("/get-updated-dates", (req, res) => {
 });
 
 // 📌任意2日付のデータ取得API
-// app.get("/get-machines-by-dates", (req, res) => {
-//   const { storeName, competitorName, category, date1, date2 } = req.query;
-
-//   db.query(
-//     "SELECT id FROM stores WHERE store_name = ?",
-//     [storeName],
-//     (err, storeResult) => {
-//       if (err || storeResult.length === 0) {
-//         console.error("❌ エラー: 自店が見つかりません", err);
-//         return res.status(400).json({ error: "自店が見つかりません" });
-//       }
-//       const storeId = storeResult[0].id;
-
-//       db.query(
-//         "SELECT id FROM categories WHERE category_name = ?",
-//         [category],
-//         (err, catResult) => {
-//           if (err || catResult.length === 0) {
-//             console.error("❌ エラー: カテゴリーが見つかりません", err);
-//             return res.status(400).json({ error: "カテゴリーが見つかりません" });
-//           }
-//           const categoryId = catResult[0].id;
-
-//           const isOwnStore = competitorName === "self"; // ✅ 自店判定
-
-//           if (isOwnStore) {
-//             // ✅ 自店のデータを取得
-//             console.log("🔍 自店のデータ取得:", { storeId, categoryId, date1, date2 });
-
-//             const machineQuery = `
-//               SELECT machine_name, quantity, updated_at
-//               FROM store_machine_data
-//               WHERE store_id = ? AND category_id = ?
-//               AND updated_at IN (?, ?)
-//               ORDER BY updated_at DESC, quantity DESC
-//             `;
-
-//             db.query(
-//               machineQuery,
-//               [storeId, categoryId, date1, date2],
-//               (err, results) => {
-//                 if (err) {
-//                   console.error("❌ データ取得エラー:", err);
-//                   return res.status(500).json({ error: "データ取得エラー" });
-//                 }
-
-//                 const date1ISO = new Date(date1).toISOString();
-//                 const date2ISO = new Date(date2).toISOString();
-
-//                 const date1Data = results.filter(row => row.updated_at.toISOString() === date1ISO);
-//                 const date2Data = results.filter(row => row.updated_at.toISOString() === date2ISO);
-
-//                 res.json({
-//                   date1: date1Data,
-//                   date2: date2Data
-//                 });
-//               }
-//             );
-//           } else {
-//             // ✅ 競合店のデータを取得
-//             db.query(
-//               "SELECT id FROM competitor_stores WHERE store_id = ? AND competitor_name = ?",
-//               [storeId, competitorName],
-//               (err, compResult) => {
-//                 if (err || compResult.length === 0) {
-//                   console.error("❌ エラー: 競合店が見つかりません", err);
-//                   return res.status(400).json({ error: "競合店が見つかりません" });
-//                 }
-//                 const competitorId = compResult[0].id;
-
-//                 console.log("🔍 競合店のデータ取得:", { competitorId, categoryId, date1, date2 });
-
-//                 const machineQuery = `
-//                   SELECT machine_name, quantity, updated_at
-//                   FROM machine_data
-//                   WHERE competitor_id = ? AND category_id = ?
-//                   AND updated_at IN (?, ?)
-//                   ORDER BY updated_at DESC, quantity DESC
-//                 `;
-
-//                 db.query(
-//                   machineQuery,
-//                   [competitorId, categoryId, date1, date2],
-//                   (err, results) => {
-//                     if (err) {
-//                       console.error("❌ データ取得エラー:", err);
-//                       return res.status(500).json({ error: "データ取得エラー" });
-//                     }
-
-//                     const date1ISO = new Date(date1).toISOString();
-//                     const date2ISO = new Date(date2).toISOString();
-
-//                     const date1Data = results.filter(row => row.updated_at.toISOString() === date1ISO);
-//                     const date2Data = results.filter(row => row.updated_at.toISOString() === date2ISO);
-
-//                     res.json({
-//                       date1: date1Data,
-//                       date2: date2Data
-//                     });
-//                   }
-//                 );
-//               }
-//             );
-//           }
-//         }
-//       );
-//     }
-//   );
-// });
-
 app.get("/get-machines-by-dates", (req, res) => {
   const { storeName, competitorName, category, date1, date2 } = req.query;
 

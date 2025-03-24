@@ -10,18 +10,13 @@ function MachineForm() {
   const { storeName } = useParams();
   const [selectedStore, setSelectedStore] = useState("");
   const [competitors, setCompetitors] = useState([]);
-  const [typeOptions, setTypeOptions] = useState([]);
   const [selectedCompetitor, setSelectedCompetitor] = useState("");
   const [type, setType] = useState("");
   const [machineData, setMachineData] = useState("");
   const [newCompetitor, setNewCompetitor] = useState("");
   const [showAddForm, setShowAddForm] = useState(false);
-  const [pendingConfirmation, setPendingConfirmation] = useState(null);
-  const [showConfirmationModal, setShowConfirmationModal] = useState(false);
   const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(false); 
-  const [searchingIndex, setSearchingIndex] = useState(null); // 🔹 修正対象の行
-  const [searchingStage, setSearchingStage] = useState(null); // 🔹 ステージ3 or 4
   const [machineSearchResults, setMachineSearchResults] = useState([]); // 🔹 機種検索結果を管理
   const [machineType, setMachineType] = useState(""); // パチンコ or スロット
   const [makers, setMakers] = useState([]); // メーカーリスト
@@ -29,13 +24,15 @@ function MachineForm() {
   const [types, setTypes] = useState([]); // 機種タイプリスト
   const [selectedType, setSelectedType] = useState(""); // 選択した機種タイプ
   const [machineName, setMachineName] = useState(""); // 🔹 検索用の機種名
-  const [confirmedMachines, setConfirmedMachines] = useState(new Set()); // 🔹 確定済みの機種管理
   const [searchingMachine, setSearchingMachine] = useState(null);
-  const [pachinkoTypes, setPachinkoTypes] = useState([]);
-  const [slotTypes, setSlotTypes] = useState([]);
   const [latestUpdates, setLatestUpdates] = useState([]);
   const isOwnStore = selectedCompetitor === "self";
 
+  const [pendingTotalConfirmation, setPendingTotalConfirmation] = useState([]); // 🔹 総台数確認データ
+  const [showTotalConfirmationModal, setShowTotalConfirmationModal] = useState(false); // 🔹 モーダルの表示状態
+
+  const [missingMachines, setMissingMachines] = useState([]); // 🔹 総台数確認データ
+  const [showMissingMachineModal, setShowMissingMachineModal] = useState(false); // 🔹 モーダルの表示状態
 
 
   const API_URL = process.env.REACT_APP_API_URL;
@@ -60,20 +57,6 @@ function MachineForm() {
       .catch(err => console.error("エラー:", err));
   }, [API_URL, selectedStore]);
 
-  /** 🔹 種別リストを取得 */
-  useEffect(() => {
-    if (!API_URL) return;
-  
-    fetch(`${API_URL}/get-types`)
-      .then(res => res.json())
-      .then(data => {
-        setTypeOptions(data);
-        setPachinkoTypes(data.slice(0, 4));
-        setSlotTypes(data.slice(4, 8));
-      })
-      .catch(err => console.error("エラー:", err));
-  }, [API_URL]);
-
    // 🔹 Sisメーカーリスト取得
   useEffect(() => {
     axios.get(`${API_URL}/get-sis-makers`)
@@ -90,111 +73,214 @@ function MachineForm() {
 
   /** 🔹 機種データをパース */
   const parseMachineData = () => {
-    const lines = machineData.split("\n").map(line => line.trim()).filter(Boolean);
-    let machines = [];
-    let previousLine = "";
+    if (!machineData) {
+        console.warn("⚠️ 入力されたデータが空です");
+        return [];
+    }
 
-    lines.forEach(line => {
-      if (/^\d+$/.test(line)) {
-        const quantity = parseInt(line, 10);
-        if (previousLine) {
-          machines.push({ machine: previousLine, quantity });
-        }
-      } else if (!line.match(/【.*】/)) {
-        previousLine = line;
-      }
+    // 🔹 `textarea` の中身（HTML文字列）を DOM としてパース
+    const parser = new DOMParser().parseFromString(machineData, "text/html");
+    const container = parser.querySelector("#hall_kisyus");
+
+    if (!container) {
+        console.warn("⚠️ `#hall_kisyus` が見つかりません。HTMLの構造を確認してください。");
+        console.log("🔍 現在の `machineData`:", machineData);
+        return [];
+    }
+
+    // 🔹 `section` 要素を取得（パチンコ & スロット）
+    const sections = container.querySelectorAll("section");
+    if (sections.length === 0) {
+        console.warn("⚠️ セクションが見つかりません。HTMLの構造が変わっている可能性があります。");
+        return [];
+    }
+
+    let machines = [];
+
+    // 🔹 レートマッピング（パチンコとスロットを分離）
+    const rateMapping = {
+        "パチンコ": [
+            { min: 3.5, max: 4.5, category: "4円パチンコ" },
+            { min: 1.5, max: 3.49, category: "2円パチンコ" },
+            { min: 1, max: 1.49, category: "1円パチンコ" },
+            { min: 0, max: 0.99, category: "1円未満パチンコ" }
+        ],
+        "スロット": [
+            { min: 15, max: 24, category: "20円スロット" },
+            { min: 9, max: 14.99, category: "10円スロット" },
+            { min: 5, max: 8.99, category: "5円スロット" },
+            { min: 0, max: 4.99, category: "5円未満スロット" }
+        ]
+    };
+
+    // 🔹 レートの分類関数
+    const classifyRate = (rateText, type) => {
+        const value = eval(rateText.replace("円", "").replace("玉", "").replace("枚", "").replace("/", "/"));
+        const category = rateMapping[type]?.find(r => value >= r.min && value <= r.max);
+        return category ? category.category : "不明";
+    };
+
+    sections.forEach(section => {
+        const type = section.id === "pachi" ? "パチンコ" : "スロット"; // 🔹 種別（パチ or スロ）
+
+        // 🔹 カテゴリー情報を取得
+        const categoryTitles = section.querySelectorAll(".hallKisyuList-categoryTitle");
+
+        categoryTitles.forEach(category => {
+            const rateText = category.getAttribute("data-machine-rate");
+            const categoryName = classifyRate(rateText, type); // 🔹 機種種別に応じたレート分類
+
+            let nextMachine = category.nextElementSibling;
+            while (nextMachine && nextMachine.classList.contains("js-hallKisyuList-item")) {
+                const machineNames = nextMachine.getAttribute("data-machine-name").split(",");
+                const machineNameElement = nextMachine.querySelector(".hallKisyuList-machineName");
+                const machineName = machineNameElement ? machineNameElement.textContent.trim() : machineNames[0].trim();
+                const quantityText = nextMachine.querySelector(".hallKisyuList-count")?.textContent.trim();
+                const quantity = quantityText ? parseInt(quantityText, 10) : null;
+
+                machines.push({
+                    type,       // 🔹 パチンコ or スロット
+                    rate: eval(rateText.replace("円", "").replace("玉", "").replace("枚", "").replace("/", "/")), // 🔹 計算されたレート
+                    category: categoryName, // 🔹 統合後のカテゴリー (例: "4円パチンコ")
+                    machine: machineName,  // 🔹 表示される機種名
+                    quantity,   // 🔹 台数
+                    aliases: machineNames.map(name => name.trim()), // 🔹 別名リスト
+                });
+
+                nextMachine = nextMachine.nextElementSibling;
+            }
+        });
     });
 
+    console.log("✅ パース完了:", machines);
     return machines;
   };
 
-  /** 🔹 機種データを登録 */
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setIsLoading(true); 
-    const machines = parseMachineData();
-  
-    if (!selectedCompetitor || !type || machines.length === 0) {
-      alert("すべての項目を入力してください");
-      setIsLoading(false);
-      return;
+    setIsLoading(true);
+
+    const machines = parseMachineData(); 
+
+    if (!selectedCompetitor || machines.length === 0) {
+        alert("すべての項目を入力してください");
+        setIsLoading(false);
+        return;
     }
-  
+
+    const groupedMachines = machines.reduce((acc, { category, machine, quantity, aliases }) => {
+        if (!acc[category]) acc[category] = [];
+        acc[category].push({ machine, quantity, aliases });
+        return acc;
+    }, {});
+
     const payload = {
-      storeName: selectedStore,
-      competitorName: isOwnStore ? null : selectedCompetitor,
-      category: type,
-      machines,
-      isOwnStore
+        storeName: selectedStore,
+        competitorName: isOwnStore ? null : selectedCompetitor,
+        categories: Object.entries(groupedMachines).map(([category, machines]) => ({
+            category,
+            machines
+        })),
+        isOwnStore
     };
 
-    console.log("✅ 送信データ:", payload); 
-  
+    console.log("🚀 送信データ:", payload);
+
     try {
-      const response = await fetch(`${API_URL}/add-machine`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-  
-      let data = await response.json(); 
-      console.log("🛠 受信したデータ:", data);
-  
-      if (!response.ok) {
-        alert(`登録に失敗しました: ${data.error}`);
-        return;
-      }
-  
-      // ✅ **総台数の確認**
-      if (data.needsTotalQuantityConfirmation) {
-        const confirmMessage = `総台数に差異があります (${data.currentTotal} → ${data.totalQuantity})。\n登録を続行しますか？`;
-        const userConfirmed = window.confirm(confirmMessage);
-  
-        if (!userConfirmed) {
-          alert("登録をキャンセルしました。");
-          return;
-        }
-  
-        const confirmedResponse = await fetch(`${API_URL}/confirm-add-machine`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
+        const response = await fetch(`${API_URL}/add-machine`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
         });
-  
-        const confirmedData = await confirmedResponse.json();
-  
-        if (!confirmedResponse.ok) {
-          alert(`登録に失敗しました: ${confirmedData.error}`);
-          return;
+
+        let data = await response.json();
+        console.log("🛠 受信したデータ:", data);
+
+        if (!response.ok) {
+            alert(`登録に失敗しました: ${data.error}`);
+            return;
         }
-  
-        data = confirmedData; // **Stage3 の確認用にデータ更新**
-      }
-  
-      // ✅ **Stage3 の `Modal` を開く**
-      if (data.needsStage3Confirmation || data.needsStage4Confirmation) {
-        setConfirmedMachines(new Set());
-        setPendingConfirmation(data);
-        setShowConfirmationModal(true);
-      } else {
-        alert("データが登録されました！");
+
+        // ✅ **総台数の確認が必要かチェック**
+        if (data.message?.includes("総台数に差異があります")) {
+            console.warn("⚠️ 総台数に差異があります。フロントエンドで確認を求めます。");
+
+            // **確認用データをセットしてモーダルを開く**
+            setPendingTotalConfirmation(data.categories);
+            setShowTotalConfirmationModal(true);
+            return; 
+        }
+
+        // ✅ **`missingSisCodes` がある場合、手動入力モーダルを開く**
+        if (data.missingSisCodes && data.missingSisCodes.length > 0) {
+            console.warn("⚠️ 一部の `sis_code` が見つからず、手動入力が必要:", data.missingSisCodes);
+            setMissingMachines(data.missingSisCodes);
+            setShowMissingMachineModal(true);
+            return;
+        }
+
+        alert("✅ すべてのデータが正常に登録されました！");
         resetForm();
-      }
+
     } catch (error) {
-      console.error("Error:", error);
-      alert("エラーが発生しました");
+        console.error("❌ エラー:", error);
+        alert("エラーが発生しました");
     } finally {
-      setIsLoading(false); // **🔹 ローディング終了**
+        setIsLoading(false);
     }
-  };  
+  };
+
+  // ⚠️ モーダルを作成し、確認後 `/confirm-insert` を呼び出す
+  const handleTotalConfirmation = async () => {
+    if (!pendingTotalConfirmation) return; // 🔹 確認データがない場合は処理しない
+
+    setIsLoading(true);
+    try {
+        const confirmedResponse = await fetch(`${API_URL}/confirm-insert`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ 
+                storeName: selectedStore,
+                competitorName: isOwnStore ? null : selectedCompetitor,
+                categories: pendingTotalConfirmation.map(category => ({
+                    ...category,
+                    totalQuantity: category.totalQuantity // 🔹 追加
+                })),
+                isOwnStore
+            }),
+        });
+
+        const confirmedData = await confirmedResponse.json();
+
+        if (!confirmedResponse.ok) {
+            alert(`登録に失敗しました: ${confirmedData.error}`);
+            return;
+        }
+
+        // ✅ **`missingSisCodes` がある場合、手動入力モーダルを開く**
+        if (confirmedData.missingSisCodes && confirmedData.missingSisCodes.length > 0) {
+            console.warn("⚠️ 一部の `sis_code` が見つからず、手動入力が必要:", confirmedData.missingSisCodes);
+            setMissingMachines(confirmedData.missingSisCodes);
+            setShowMissingMachineModal(true);
+            return;
+        }
+
+        alert("✅ すべてのデータが正常に登録されました！");
+        resetForm();
+
+    } catch (error) {
+        console.error("❌ 確認エラー:", error);
+        alert("エラーが発生しました");
+    } finally {
+        setIsLoading(false);
+        setShowTotalConfirmationModal(false);
+    }
+  };
 
   /** 🔹 フォームリセット関数 */
   const resetForm = () => {
     setMachineData("");
-    setShowConfirmationModal(false);
     setSearchingMachine(null);
-    setSearchingIndex(null);
-    setSearchingStage(null);
     if (selectedCompetitor) {
       handleCompetitorChange({ target: { value: selectedCompetitor } });
     }
@@ -202,10 +288,8 @@ function MachineForm() {
 
   /** 🔹 キャンセル用リセット関数 */
   const resetModal = () => {
-    setShowConfirmationModal(false);
+    setShowMissingMachineModal(false);
     setSearchingMachine(null);
-    setSearchingIndex(null);
-    setSearchingStage(null);
     if (selectedCompetitor) {
       handleCompetitorChange({ target: { value: selectedCompetitor } });
     }
@@ -319,9 +403,7 @@ function MachineForm() {
   };
 
    // 🔹 修正対象を設定
-  const handleEditMachine = (stage, idx, machine) => {
-    setSearchingIndex(idx);
-    setSearchingStage(stage);
+  const handleEditMachine = (idx, machine) => {
     setSearchingMachine(machine);
     setMachineName(""); // 検索用フィールドをリセット
     setMachineSearchResults([]);
@@ -329,144 +411,58 @@ function MachineForm() {
 
   // 🔹 検索結果から修正確定
   const applyFixedMachine = (selectedMachine) => {
-    // 更新前のデータをログ出力
-    console.log("🔹 修正前の pendingConfirmation:", pendingConfirmation);
+    console.log("🔹 修正前の missingMachines:", missingMachines);
 
-    const updatedConfirmation = { ...pendingConfirmation };
+    const updatedMachines = missingMachines.map(m =>
+        m.machine === searchingMachine.machine
+            ? { ...m, sis_code: selectedMachine.sis_machine_code, fixedName: selectedMachine.sis_machine_name }
+            : m
+    );
 
-    if (searchingStage === 3) {
-      updatedConfirmation.machines[searchingIndex] = {
-        ...updatedConfirmation.machines[searchingIndex],
-        name_collection_id: selectedMachine.id,
-        sis_code: selectedMachine.sis_machine_code,
-        fixedName: selectedMachine.sis_machine_name,
-        isFixed: true, 
-      };
-    } else if (searchingStage === 4) {
-      updatedConfirmation.machinesStage4[searchingIndex] = {
-        ...updatedConfirmation.machinesStage4[searchingIndex],
-        name_collection_id: selectedMachine.id,
-        sis_code: selectedMachine.sis_machine_code,
-        fixedName: selectedMachine.sis_machine_name, 
-      };
-    }
+    console.log("✅ 修正後の missingMachines:", updatedMachines);
 
-    // 更新後のデータをログ出力
-    console.log("✅ 修正後の pendingConfirmation:", updatedConfirmation);
-
-    // 状態を更新
-    setPendingConfirmation(updatedConfirmation);
-
-    // ステートをクリア
-    setSearchingIndex(null);
-    setSearchingStage(null);
-    setSearchingMachine(null);
+    setMissingMachines(updatedMachines);
+    setSearchingMachine(null); // 検索フォームを閉じる
   };
 
-  // 🔹 ステージ3の機種確認済みトグル
-  const toggleMachineConfirmed = (idx) => {
-    const updatedSet = new Set(confirmedMachines);
-    if (updatedSet.has(idx)) {
-      updatedSet.delete(idx);
-    } else {
-      updatedSet.add(idx);
-    }
-    setConfirmedMachines(updatedSet);
-  };
-  
   // 🔹 すべての機種が確定されたか判定
   const isAllConfirmed = () => {
-    if (!pendingConfirmation) return false;
-  
-    const stage3Count = pendingConfirmation.machines.length;
-    const stage4Count = pendingConfirmation.machinesStage4.length;
-  
-    const stage3Confirmed = stage3Count === 0 || confirmedMachines.size === stage3Count;
-  
-    const stage4AllFixed =
-      stage4Count === 0 ||
-      pendingConfirmation.machinesStage4.every(
-        (m) => m.fixedName && m.fixedName.trim() !== ""
-      );
-  
-    return stage3Confirmed && stage4AllFixed;
+    if (!missingMachines) return false;
+    return missingMachines.every(m => m.fixedName && m.fixedName.trim() !== "");
   };
 
-  // 🔹 修正が必要な部分を特定してメッセージを表示
-  const getUnconfirmedMessage = () => {
-    let messages = [];
-
-    if (!pendingConfirmation) return "データがありません。";
-
-    // ステージ3の未確認データ
-    const unconfirmedStage3 = pendingConfirmation.machines.filter(
-      (_, idx) => !confirmedMachines.has(idx)
-    );
-    if (unconfirmedStage3.length > 0) {
-      messages.push("確認が完了していません。");
-    }
-
-    // ステージ4の未修正データ
-    const unconfirmedStage4 = pendingConfirmation.machinesStage4.filter(
-      (m) => !m.fixedName || m.fixedName.trim() === ""
-    );
-    if (unconfirmedStage4.length > 0) {
-      messages.push("機種名が未修正です。");
-    }
-
-    return messages.length > 0 ? messages.join("\n") : "すべての修正が完了しています。";
-  };
-  
   /** 🔹 確認後の更新処理 */
   const handleConfirmUpdate = async () => {
-    if (!pendingConfirmation) {
-      alert("確認するデータがありません");
-      return;
+    if (!missingMachines) {
+        alert("確認するデータがありません");
+        return;
     }
-  
-    console.log("🛠 `handleConfirmUpdate` に送るデータ:", pendingConfirmation);
-  
-    if (!pendingConfirmation.category) {
-      alert("エラー: category が未定義です");
-      console.error("❌ category が未定義:", pendingConfirmation);
-      return;
-    }
-  
+
+    console.log("🛠 `handleConfirmUpdate` に送るデータ:", missingMachines);
+
     try {
-      const confirmResponse = await fetch(`${API_URL}/confirm-update-machine`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          isOwnStore: pendingConfirmation.isOwnStore, // ✅ 追加
-          targetId: pendingConfirmation.isOwnStore 
-            ? pendingConfirmation.storeId 
-            : pendingConfirmation.competitorId, // ✅ 自店 or 競合
-          category: pendingConfirmation.category,
-          categoryId: pendingConfirmation.categoryId,
-          totalQuantity: pendingConfirmation.totalQuantity,
-          machines: pendingConfirmation.machines,  // ステージ3
-          machinesStage4: pendingConfirmation.machinesStage4,  // ステージ4
-          updatedAt: pendingConfirmation.updatedAt,
-        }),
-      });
-  
-      const confirmData = await confirmResponse.json();
-  
-      if (confirmResponse.ok) {
-        alert("データが登録されました！");
-        resetForm();
-      } else {
-        alert(`登録に失敗しました: ${confirmData.error}`);
-      }
+        const confirmResponse = await fetch(`${API_URL}/update-missing-sis-code`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ machines: missingMachines, isOwnStore}),
+        });
+
+        const confirmData = await confirmResponse.json();
+
+        if (confirmResponse.ok) {
+            alert("データが登録されました！");
+            setShowMissingMachineModal(false);
+            setMissingMachines(null);
+            resetForm();
+        } else {
+            alert(`登録に失敗しました: ${confirmData.error}`);
+        }
     } catch (error) {
-      console.error("Error:", error);
-      alert("エラーが発生しました");
-    } finally {
-      setShowConfirmationModal(false);
-      setPendingConfirmation(null);
+        console.error("❌ 更新エラー:", error);
+        alert("エラーが発生しました");
     }
-  };  
-  
+  };
+
   return (
     <div className="container">
       <h2>設置機種登録 - {selectedStore}</h2>
@@ -529,50 +525,13 @@ function MachineForm() {
           </div>
         )}
 
-        <label>種別:</label>
-        {pachinkoTypes.length > 0 && (
-          <div className="type-group">
-            <span className="type-group-title">【パチンコ】</span>
-            <div className="type-options">
-              {pachinkoTypes.map((t) => (
-                <label key={t} className="type-option">
-                  <input
-                    type="radio"
-                    value={t}
-                    checked={type === t}
-                    onChange={(e) => setType(e.target.value)}
-                  />
-                  {t}
-                </label>
-              ))}
-            </div>
-          </div>
-        )}
-        {slotTypes.length > 0 && (
-          <div className="type-group">
-            <span className="type-group-title">【スロット】</span>
-            <div className="type-options">
-              {slotTypes.map((t) => (
-                <label key={t} className="type-option">
-                  <input
-                    type="radio"
-                    value={t}
-                    checked={type === t}
-                    onChange={(e) => setType(e.target.value)}
-                  />
-                  {t}
-                </label>
-              ))}
-            </div>
-          </div>
-        )}
-
         <label>機種名 & 台数:</label>
         <textarea 
           className="machine-textarea" 
           value={machineData} 
           onChange={(e) => setMachineData(e.target.value)} 
           disabled={isLoading}
+          maxLength={undefined} // これにより上限なしになる
         />
 
         <button type="submit" className="submit-btn" disabled={isLoading}>
@@ -581,197 +540,158 @@ function MachineForm() {
       </form>
 
       <Modal 
-        isOpen={showConfirmationModal}
-        onRequestClose={() => setShowConfirmationModal(false)}
+        isOpen={showMissingMachineModal}
+        onRequestClose={() => setShowMissingMachineModal(false)}
         shouldCloseOnOverlayClick={false}
         shouldCloseOnEsc={false}
         contentLabel="機種データ確認"
         className="modal"
         overlayClassName="overlay"
-      >
+    >
         <h2>機種データの確認</h2>
 
-        {/* 🔹 ステージ3のデータ表示*/}
-        {pendingConfirmation?.machines.length > 0 && (
-          <>
-            <h3>機種名が正しいか確認してください</h3>
-            <table>
-              <thead>
-                <tr>
-                  <th>確認</th>
-                  <th>入力された機種名</th>
-                  <th>マスター機種名</th>
-                  <th>修正後の機種名</th>
-                  <th>台数</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-              {pendingConfirmation.machines.map((m, idx) => {
-                  const matchedMachine = pendingConfirmation?.machineDetails?.find(
-                    (detail) => detail.sis_machine_code === m.sis_code
-                  );
-                  return (
-                    <tr key={idx}>
-                      <td>
-                        <input 
-                          type="checkbox" 
-                          checked={confirmedMachines.has(idx)} 
-                          onChange={() => toggleMachineConfirmed(idx)} 
-                        />
-                      </td>
-                      <td>{m.inputName}</td> 
-                      <td>{m.isFixed ? (
-                          "修正済み"
-                        ) : matchedMachine ? (
-                          <a
-                            href={`https://www.google.com/search?q=${encodeURIComponent(
-                              matchedMachine.sis_machine_name
-                            )}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{ color: "#007bff", textDecoration: "underline" }}
-                          >
-                            {matchedMachine.sis_machine_name}
-                          </a>
-                        ) : (
-                          "不明"
-                        )}
-                      </td>
-                      <td>{m.fixedName || "未修正"}</td>
-                      <td>{m.quantity}</td>
-                      <td>
-                      <button onClick={() => handleEditMachine(3, idx, m)}>修正</button>
-                    </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </>
+        {/* 🔹 `sis_code` が見つからなかった機種の修正 */}
+        {missingMachines?.length > 0 && (
+            <>
+                <h3>該当機種が見つかりませんでした(要修正)</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>入力された機種名</th>
+                            <th>修正後の機種名</th>
+                            <th>台数</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {missingMachines.map((m, idx) => (
+                            <tr key={idx}>
+                                <td>{m.machine}</td>
+                                <td>{m.fixedName || "未修正"}</td>
+                                <td>{m.quantity}</td>
+                                <td>
+                                    <button onClick={() => handleEditMachine(idx, m)}>修正</button>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </>
         )}
 
-        {/* 🔹 ステージ4のデータ表示*/}
-        {pendingConfirmation?.machinesStage4.length > 0 && (
-          <>
-            <h3>該当機種が見つかりませんでした(要修正)</h3>
-            <table>
-              <thead>
-                <tr>
-                  <th>入力された機種名</th>
-                  <th>修正後の機種名</th>
-                  <th>台数</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pendingConfirmation.machinesStage4.map((m, idx) => (
-                  <tr key={idx}>
-                    <td>{m.inputName}</td>
-                    <td>{m.fixedName || "未修正"}</td>
-                    <td>{m.quantity}</td>
-                    <td>
-                      <button onClick={() => handleEditMachine(4, idx, m)}>修正</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </>
-        )}
-        
         {/* 🔹 検索フォーム（修正時のみ表示） */}
         {searchingMachine !== null && (
-          <>
-            <h3>修正対象: {searchingMachine.inputName}</h3>
+            <>
+                <h3>修正対象: {searchingMachine.machine}</h3>
 
-            <div className="search-form">
-              <div className="search-form-row">
-                <label>種別:</label>
-                <select value={machineType} onChange={(e) => setMachineType(e.target.value)}>
-                  <option value="">選択してください</option>
-                  <option value="pachinko">パチンコ</option>
-                  <option value="slot">スロット</option>
-                </select>
-              </div>
+                <div className="search-form">
+                    <div className="search-form-row">
+                        <label>種別:</label>
+                        <select value={machineType} onChange={(e) => setMachineType(e.target.value)}>
+                            <option value="">選択してください</option>
+                            <option value="pachinko">パチンコ</option>
+                            <option value="slot">スロット</option>
+                        </select>
+                    </div>
 
-              <div className="search-form-row">
-                <label>メーカー:</label>
-                <select value={selectedMaker} onChange={(e) => setSelectedMaker(e.target.value)}>
-                  <option value="">すべてのメーカー</option>
-                  {makers.map(maker => (
-                    <option key={maker.sis_maker_code} value={maker.sis_maker_code}>
-                      {maker.sis_maker_name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+                    <div className="search-form-row">
+                        <label>メーカー:</label>
+                        <select value={selectedMaker} onChange={(e) => setSelectedMaker(e.target.value)}>
+                            <option value="">すべてのメーカー</option>
+                            {makers.map(maker => (
+                                <option key={maker.sis_maker_code} value={maker.sis_maker_code}>
+                                    {maker.sis_maker_name}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
 
-              <div className="search-form-row">
-                <label>機種タイプ:</label>
-                <select value={selectedType} onChange={(e) => setSelectedType(e.target.value)}>
-                  <option value="">すべての機種タイプ</option>
-                  {types.map(type => (
-                    <option key={type.sis_type_code} value={type.sis_type_code}>
-                      {type.sis_type_name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+                    <div className="search-form-row">
+                        <label>機種タイプ:</label>
+                        <select value={selectedType} onChange={(e) => setSelectedType(e.target.value)}>
+                            <option value="">すべての機種タイプ</option>
+                            {types.map(type => (
+                                <option key={type.sis_type_code} value={type.sis_type_code}>
+                                    {type.sis_type_name}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
 
-              <div className="search-form-row">
-                <label>機種名検索:</label>
-                <input
-                  type="text"
-                  placeholder="例: ガンダム"
-                  value={machineName}
-                  onChange={(e) => setMachineName(e.target.value)}
-                />
-              </div>
+                    <div className="search-form-row">
+                        <label>機種名検索:</label>
+                        <input
+                            type="text"
+                            placeholder="例: ガンダム"
+                            value={machineName}
+                            onChange={(e) => setMachineName(e.target.value)}
+                        />
+                    </div>
 
-              <button onClick={fetchMachines}>検索</button>
-            </div>
+                    <button onClick={fetchMachines}>検索</button>
+                </div>
 
-            {machineSearchResults.length > 0 && (
-              <div className="search-results">
-                <h4>検索結果</h4>
-                <ul>
-                  {machineSearchResults.map((machine, index) => (
-                    <li key={index}>
-                      <a 
-                        href={`https://www.google.com/search?q=${encodeURIComponent(machine.sis_machine_name)}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{ color: "#007bff", textDecoration: "underline" }}
-                      >
-                        {machine.sis_machine_name}
-                      </a>
-                      <button onClick={() => applyFixedMachine(machine)}>選択</button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </>
+                {machineSearchResults.length > 0 && (
+                    <div className="search-results">
+                        <h4>検索結果</h4>
+                        <ul>
+                            {machineSearchResults.map((machine, index) => (
+                                <li key={index}>
+                                    <a 
+                                        href={`https://www.google.com/search?q=${encodeURIComponent(machine.sis_machine_name)}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        style={{ color: "#007bff", textDecoration: "underline" }}
+                                    >
+                                        {machine.sis_machine_name}
+                                    </a>
+                                    <button onClick={() => applyFixedMachine(machine)}>選択</button>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
+            </>
         )}
 
-        {/* 🔹 確定ボタン（すべて確定しないと押せない） */}
+        {/* 🔹 確定ボタン */}
         <button
-          className="confirm-button"
-          onClick={() => {
-            if (!isAllConfirmed()) {
-              alert(getUnconfirmedMessage());
-            } else {
-              handleConfirmUpdate();
-            }
-          }}
-          disabled={!isAllConfirmed()}
+            className="confirm-button"
+            onClick={handleConfirmUpdate}
+            disabled={!isAllConfirmed()}
         >
-          確定する
+            確定する
         </button>
 
-        <button onClick={resetModal}>キャンセル</button>
-      </Modal>
+        <button
+          onClick={() => {
+            const confirmCancel = window.confirm("本当にキャンセルしますか？\n入力した内容は失われます。");
+            if (confirmCancel) {
+              resetModal();
+            }
+          }}
+        >
+          キャンセル
+        </button>
+    </Modal>
+
+      {showTotalConfirmationModal && (
+        <div className="modal">
+          <div className="modal-content">
+            <h3>⚠️ 総台数に差異があります</h3>
+            <p>登録を続行しますか？</p>
+            <ul>
+              {pendingTotalConfirmation.map((c, index) => (
+                <li key={index}>
+                  {c.category}: {c.currentTotal} → {c.totalQuantity}
+                </li>
+              ))}
+            </ul>
+            <button onClick={handleTotalConfirmation}>OK</button>
+            <button onClick={() => setShowTotalConfirmationModal(false)}>キャンセル</button>
+          </div>
+        </div>
+      )}
 
       <div className="button-container">
         <div className="button-box" onClick={handleNavigate}>

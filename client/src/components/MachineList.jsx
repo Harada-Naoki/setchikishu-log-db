@@ -534,71 +534,79 @@ function MachineList() {
       {machines.length === 0 ? (
         <p className="no-data">データがありません</p>
       ) : (
-        <table className="machine-table">
-          <thead>
-            <tr>
-              <th>機種名</th>
-              <th className="cansort" onClick={() => handleSort('quantity')}>
-                台数
-                <span className="sort-icon">{getSortIcon('quantity')}</span>
-              </th>
-              <th>更新日</th>
-              <th className="cansort" onClick={() => handleSort('prevQuantity')}>
-                前回台数
-                <span className="sort-icon">{getSortIcon('prevQuantity')}</span>
-              </th>
-              <th>前回更新日</th>
-              <th className="cansort" onClick={() => handleSort('difference')}>
-                差分
-                <span className="sort-icon">{getSortIcon('difference')}</span>
-              </th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {machines.map((machine, index) => (
-              <tr key={index}>
-                <td>{machine.machine_name}</td>
-                <td>
-                  {machine.isEditing ? (
-                    <input
-                      type="number"
-                      value={machine.newQuantity}
-                      onChange={(e) => handleQuantityChange(index, e.target.value)}
-                      className="quantity-input"
-                    />
-                  ) : (
-                    machine.quantity
-                  )}
-                </td>
-                <td>{machine.formattedDate}</td>
-                <td>{machine.prevQuantity}</td>
-                <td>{machine.prevFormattedDate}</td>
-                <td>
-                  {machine.difference > 0 && (
-                    <span style={{ color: 'red' }}>↑ {machine.difference}</span>
-                  )}
-                  {machine.difference < 0 && (
-                    <span style={{ color: 'blue' }}>↓ {Math.abs(machine.difference)}</span>
-                  )}
-                  {machine.difference === 0 && (
-                    <span style={{ color: 'green' }}>→ 0</span>
-                  )}
-                </td>
-                <td>
-                  {machine.isEditing ? (
-                    <>
-                      <button className="save-btn" onClick={() => updateQuantity(index)}>保存</button>
-                      <button className="cancel-btn" onClick={() => toggleEdit(index)}>キャンセル</button>
-                    </>
-                  ) : (
-                    <button className="edit-btn" onClick={() => toggleEdit(index)}>編集</button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        (() => {
+          // 🔹 台数の合計を計算
+          const totalQuantity = machines.reduce((sum, machine) => sum + (machine.quantity || 0), 0);
+          const totalPrevQuantity = machines.reduce((sum, machine) => sum + (machine.prevQuantity || 0), 0);
+
+          return (
+            <table className="machine-table">
+              <thead>
+                <tr>
+                  <th>機種名</th>
+                  <th className="cansort" onClick={() => handleSort('quantity')}>
+                    台数 ({totalQuantity})
+                    <span className="sort-icon">{getSortIcon('quantity')}</span>
+                  </th>
+                  <th>更新日</th>
+                  <th className="cansort" onClick={() => handleSort('prevQuantity')}>
+                    前回台数 ({totalPrevQuantity})
+                    <span className="sort-icon">{getSortIcon('prevQuantity')}</span>
+                  </th>
+                  <th>前回更新日</th>
+                  <th className="cansort" onClick={() => handleSort('difference')}>
+                    差分
+                    <span className="sort-icon">{getSortIcon('difference')}</span>
+                  </th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {machines.map((machine, index) => (
+                  <tr key={index}>
+                    <td>{machine.machine_name}</td>
+                    <td>
+                      {machine.isEditing ? (
+                        <input
+                          type="number"
+                          value={machine.newQuantity}
+                          onChange={(e) => handleQuantityChange(index, e.target.value)}
+                          className="quantity-input"
+                        />
+                      ) : (
+                        machine.quantity
+                      )}
+                    </td>
+                    <td>{machine.formattedDate}</td>
+                    <td>{machine.prevQuantity}</td>
+                    <td>{machine.prevFormattedDate}</td>
+                    <td>
+                      {machine.difference > 0 && (
+                        <span style={{ color: 'red' }}>↑ {machine.difference}</span>
+                      )}
+                      {machine.difference < 0 && (
+                        <span style={{ color: 'blue' }}>↓ {Math.abs(machine.difference)}</span>
+                      )}
+                      {machine.difference === 0 && (
+                        <span style={{ color: 'green' }}>→ 0</span>
+                      )}
+                    </td>
+                    <td>
+                      {machine.isEditing ? (
+                        <>
+                          <button className="save-btn" onClick={() => updateQuantity(index)}>保存</button>
+                          <button className="cancel-btn" onClick={() => toggleEdit(index)}>キャンセル</button>
+                        </>
+                      ) : (
+                        <button className="edit-btn" onClick={() => toggleEdit(index)}>編集</button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          );
+        })()
       )}
 
       <div className="button-container">
