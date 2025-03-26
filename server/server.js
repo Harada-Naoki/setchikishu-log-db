@@ -3,10 +3,13 @@ require("dotenv").config(); // 環境変数を読み込む
 const express = require("express");
 const cors = require("cors");
 const mysql = require("mysql2");
+const path = require("path");
 
 const app = express();
-app.use(express.json({ limit: "10mb" }));  // 🚀 10MB まで許可
-app.use(express.urlencoded({ limit: "10mb", extended: true }));  // URLエンコードデータの制限も追加
+
+// CORSとボディサイズ制限
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ limit: "10mb", extended: true }));
 app.use(cors());
 
 // MySQL接続設定
@@ -17,16 +20,6 @@ const db = mysql.createPool({
   database: process.env.DB_NAME,
   charset: "utf8mb4" // 日本語対応
 });
-
-// MySQL (TiDB) データベース接続設定
-// const db = mysql.createPool({
-//   host: process.env.DB_HOST,
-//   user: process.env.DB_USER,
-//   password: process.env.DB_PASSWORD,
-//   database: process.env.DB_NAME,
-//   port: process.env.DB_PORT || 4000,
-//   ssl: { rejectUnauthorized: true }  
-// });
 
 const CHECK_INTERVAL = 1000 * 60 * 5; // 5分
 
@@ -1246,6 +1239,15 @@ app.get("/get-all-latest-updates", (req, res) => {
 // ヘルスチェック用エンドポイント
 app.get('/ping', (req, res) => {
   res.status(200).send('pong');
+});
+
+// 📦 Reactビルドファイルのパス指定
+const buildPath = path.join(__dirname, "..", "client", "build");
+app.use(express.static(buildPath));
+
+// ✅ React用ルーティング（全てのGETリクエストにindex.htmlを返す）
+app.get("*", (req, res) => {
+  res.sendFile(path.join(buildPath, "index.html"));
 });
 
 // 📌 サーバー起動
