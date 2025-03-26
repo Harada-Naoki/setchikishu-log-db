@@ -28,14 +28,6 @@ const db = mysql.createPool({
 //   ssl: { rejectUnauthorized: true }  
 // });
 
-// db.connect(err => {
-//   if (err) {
-//     console.error("MySQL接続エラー:", err);
-//   } else {
-//     console.log("MySQL接続成功");
-//   }
-// });
-
 const CHECK_INTERVAL = 1000 * 60 * 5; // 5分
 
 const checkDbConnection = () => {
@@ -88,7 +80,7 @@ app.post("/add-machine", (req, res) => {
   });
 });
 
-// 🔹 カテゴリーの処理関数
+// 🔹 種別毎に追加処理
 function processCategories(targetId, targetTable, categories, res, isOwnStore) {
   const categoryPromises = categories.map(({ category, machines }) => {
     return new Promise((resolve, reject) => {
@@ -138,6 +130,7 @@ function processCategories(targetId, targetTable, categories, res, isOwnStore) {
     });
 }
 
+// 🔹 前回の台数との差を確認
 function checkAndInsert(targetId, targetTable, totalQuantity, category, categoryId, machines, isOwnStore) {
   return new Promise((resolve, reject) => {
     const idColumn = "id"; 
@@ -196,6 +189,7 @@ function checkAndInsert(targetId, targetTable, totalQuantity, category, category
   });
 }
 
+// 📌 台数の確認後に処理を進めるAPI
 app.post("/confirm-insert", (req, res) => {
   console.log("🚀 API 呼び出し: /confirm-insert");
   console.log("📥 受信データ:", req.body);
@@ -240,6 +234,7 @@ app.post("/confirm-insert", (req, res) => {
   });
 });
 
+// 🔹 機種情報をDB登録
 function registerMachineData(targetId, categories, isOwnStore, res, targetTable) {
   const categoryPromises = categories.map(({ category, machines, totalQuantity }) => {
     return new Promise((resolve, reject) => {
@@ -285,6 +280,7 @@ function registerMachineData(targetId, categories, isOwnStore, res, targetTable)
     });
 }
 
+// 🔹 種別ごとの台数を更新
 function updateTotalQuantity(targetTable, targetId, category, totalQuantity) {
   return new Promise((resolve, reject) => {
     const updateQuery = `UPDATE ${targetTable} SET \`${category}\` = ? WHERE id = ?`;
@@ -477,6 +473,7 @@ function insertMachineData(targetId, categoryId, machines, isOwnStore) {
   });
 }
 
+// 📌 フロントエンドで確認したsis_codeをDBに反映させるAPI
 app.post("/update-missing-sis-code", (req, res) => {
   const { machines, isOwnStore } = req.body;
 
@@ -519,9 +516,7 @@ app.post("/update-missing-sis-code", (req, res) => {
     });
 });
 
-/**
- * `name_collection` テーブルにデータを追加
- */
+// 🔹 `name_collection` テーブルにデータを追加
 const insertNameCollection = (inputName, sis_code, updatedAt) => {
   return new Promise((resolve, reject) => {
     const getMachineNameSql = "SELECT sis_machine_name FROM sis_machine_data WHERE sis_machine_code = ?";
@@ -971,7 +966,6 @@ app.post("/update-machine-quantity", (req, res) => {
   });
 });
 
-
 // 📌更新日時を取得するAPI（自店対応）
 app.get("/get-updated-dates", (req, res) => {
   const { storeName, competitorName, category } = req.query;
@@ -1052,12 +1046,16 @@ app.get("/get-updated-dates", (req, res) => {
 app.get("/get-machines-by-dates", (req, res) => {
   const { storeName, competitorName, category, date1, date2 } = req.query;
 
+  if (!date1 || !date2) {
+    return res.status(400).json({ error: "日付が指定されていません" });
+  }
+
   db.query(
     "SELECT id FROM stores WHERE store_name = ?",
     [storeName],
     (err, storeResult) => {
       if (err || storeResult.length === 0) {
-        console.error("❌ エラー: 自店が見つかりません", err);
+        console.error("❌ エラー: 自店が見つかりません");
         return res.status(400).json({ error: "自店が見つかりません" });
       }
       const storeId = storeResult[0].id;
@@ -1067,45 +1065,78 @@ app.get("/get-machines-by-dates", (req, res) => {
         [category],
         (err, catResult) => {
           if (err || catResult.length === 0) {
-            console.error("❌ エラー: カテゴリーが見つかりません", err);
+            console.error("❌ エラー: カテゴリーが見つかりません");
             return res.status(400).json({ error: "カテゴリーが見つかりません" });
           }
           const categoryId = catResult[0].id;
 
-          const isOwnStore = competitorName === "self"; // ✅ 自店判定
+          const parsedDate1 = new Date(date1);
+          const parsedDate2 = new Date(date2);
 
-          if (isOwnStore) {
-            console.log("🔍 自店のデータ取得:", { storeId, categoryId, date1, date2 });
+          const targetDates = [parsedDate1.toISOString().split('T')[0], parsedDate2.toISOString().split('T')[0]];
 
-            const date1UTC = new Date(date1).toISOString();
-            const date2UTC = new Date(date2).toISOString();
-            console.log("🕒 UTC形式:", { date1UTC, date2UTC });
-
+          if (competitorName === "self") {
+            // ✅ 自店データ取得
             const machineQuery = `
               SELECT machine_name, quantity, updated_at
               FROM store_machine_data
               WHERE store_id = ? AND category_id = ?
-              AND (DATE(updated_at) = DATE(?) OR DATE(updated_at) = DATE(?))
+              AND DATE(updated_at) IN (?, ?)
               ORDER BY updated_at DESC, quantity DESC
             `;
 
+            const params = [storeId, categoryId, ...targetDates];
+
+            db.query(machineQuery, params, (err, results) => {
+              if (err) {
+                console.error("❌ 自店データ取得エラー:", err);
+                return res.status(500).json({ error: "データ取得エラー" });
+              }
+
+              const data1 = results.filter(row => row.updated_at.toISOString().startsWith(targetDates[0]));
+              const data2 = results.filter(row => row.updated_at.toISOString().startsWith(targetDates[1]));
+
+              res.json({
+                [targetDates[0]]: data1,
+                [targetDates[1]]: data2
+              });
+            });
+
+          } else {
+            // ✅ 競合店データ取得
             db.query(
-              machineQuery,
-              [storeId, categoryId, date1UTC, date2UTC],
-              (err, results) => {
-                if (err) {
-                  console.error("❌ データ取得エラー:", err);
-                  return res.status(500).json({ error: "データ取得エラー" });
+              "SELECT id FROM competitor_stores WHERE store_id = ? AND competitor_name = ?",
+              [storeId, competitorName],
+              (err, compResult) => {
+                if (err || compResult.length === 0) {
+                  console.error("❌ エラー: 競合店が見つかりません");
+                  return res.status(400).json({ error: "競合店が見つかりません" });
                 }
+                const competitorId = compResult[0].id;
 
-                console.log("📊 検索結果:", results.length, "件ヒット");
+                const machineQuery = `
+                  SELECT machine_name, quantity, updated_at
+                  FROM machine_data
+                  WHERE competitor_id = ? AND category_id = ?
+                  AND DATE(updated_at) IN (?, ?)
+                  ORDER BY updated_at DESC, quantity DESC
+                `;
 
-                const date1Data = results.filter(row => new Date(row.updated_at).toISOString().split("T")[0] === date1UTC.split("T")[0]);
-                const date2Data = results.filter(row => new Date(row.updated_at).toISOString().split("T")[0] === date2UTC.split("T")[0]);
+                const params = [competitorId, categoryId, ...targetDates];
 
-                res.json({
-                  date1: date1Data,
-                  date2: date2Data
+                db.query(machineQuery, params, (err, results) => {
+                  if (err) {
+                    console.error("❌ 競合データ取得エラー:", err);
+                    return res.status(500).json({ error: "データ取得エラー" });
+                  }
+
+                  const data1 = results.filter(row => row.updated_at.toISOString().startsWith(targetDates[0]));
+                  const data2 = results.filter(row => row.updated_at.toISOString().startsWith(targetDates[1]));
+
+                  res.json({
+                    [targetDates[0]]: data1,
+                    [targetDates[1]]: data2
+                  });
                 });
               }
             );

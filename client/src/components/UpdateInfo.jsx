@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import "../css/UpdateInfo.css";
+import HamburgerMenu from './HamburgerMenu';
 
 function UpdateInfo() {
   const navigate = useNavigate();
@@ -29,6 +30,7 @@ function UpdateInfo() {
 
   return (
     <div className="update-info-container">
+      <HamburgerMenu storeName={storeName} />
       <h2>{decodedStoreName} - 更新情報一覧</h2>
 
       {Object.keys(groupedData).length === 0 ? (

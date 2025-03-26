@@ -1,0 +1,55 @@
+.hamburger-icon {
+  font-size: 2rem;
+  cursor: pointer;
+  padding: 10px;
+  text-align: left;
+}
+
+.sidebar {
+  position: fixed;
+  top: 0;
+  left: -300px;
+  width: 280px;
+  height: 100%;
+  background-color: #f0f0f0;
+  transition: left 0.3s ease;
+  padding: 20px;
+  z-index: 1000;
+  overflow-y: auto;
+}
+
+.sidebar.open {
+  left: 0;
+}
+
+.close-btn {
+  font-size: 1.5rem;
+  cursor: pointer;
+  text-align: right;
+  margin-bottom: 20px;
+}
+
+.menu-item {
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 16px;
+  background-color: white;
+  cursor: pointer;
+}
+
+.menu-item:hover {
+  background-color: #e0e0e0;
+}
+
+.icon {
+  font-size: 1.5rem;
+  margin-bottom: 5px;
+}
+
+.navigate-btn {
+  margin-top: 20px;
+  width: 100%;
+  padding: 10px;
+  font-weight: bold;
+}

@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import Modal from "react-modal";
 import axios from "axios";
 import "../css/MachineForm.css";
+import HamburgerMenu from './HamburgerMenu';
 
 Modal.setAppElement("#root");
 
@@ -465,6 +466,7 @@ function MachineForm() {
 
   return (
     <div className="container">
+      <HamburgerMenu storeName={storeName} />
       <h2>設置機種登録 - {selectedStore}</h2>
       {isLoading && <p className="loading-text">データ登録中...</p>}
       <form className="machine-form" onSubmit={handleSubmit}>
@@ -667,6 +669,7 @@ function MachineForm() {
           onClick={() => {
             const confirmCancel = window.confirm("本当にキャンセルしますか？\n入力した内容は失われます。");
             if (confirmCancel) {
+              resetForm();
               resetModal();
             }
           }}

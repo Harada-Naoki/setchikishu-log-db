@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
 import "../css/MachineList.css"; // CSS適用
+import HamburgerMenu from './HamburgerMenu';
 
 function MachineList() {
   const [machines, setMachines] = useState([]);
@@ -32,6 +33,8 @@ function MachineList() {
 
 
   const [sortConfig, setSortConfig] = useState({ key: '', direction: 'asc' });
+  const [comparisonSortConfig, setComparisonSortConfig] = useState({ key: '', direction: 'desc' });
+
 
   const API_URL = process.env.REACT_APP_API_URL; // 🌍 環境変数を適用
 
@@ -102,9 +105,9 @@ function MachineList() {
         return {
           machine_name: name,
           quantity,
-          formattedDate: updated_at ? new Date(updated_at).toISOString().split("T")[0] : "",
+          formattedDate: updated_at ? formatDateToJSTString(updated_at).split(" ")[0] : "",
           prevQuantity,
-          prevFormattedDate: prevUpdatedAt ? new Date(prevUpdatedAt).toISOString().split("T")[0] : "",
+          prevFormattedDate: prevUpdatedAt ? formatDateToJSTString(prevUpdatedAt).split(" ")[0] : "",
           difference: quantity - prevQuantity,
           isEditing: false,
           newQuantity: quantity,
@@ -138,9 +141,9 @@ function MachineList() {
   /** 🔹 更新日時の一覧を取得 */
   useEffect(() => {
     if (!API_URL || !decodedStoreName || !selectedCompetitor || !selectedType) return;
-
+  
     const competitorParam = selectedCompetitor === "self" ? "self" : selectedCompetitor;
-
+  
     fetch(`${API_URL}/get-updated-dates?storeName=${decodedStoreName}&competitorName=${competitorParam}&category=${selectedType}`)
       .then(res => res.json())
       .then(dates => {
@@ -151,11 +154,10 @@ function MachineList() {
           setSelectedDate2('');
           return;
         }
-
-        const jstDates = dates.map(date => formatDateToJSTString(date));
-        setUpdatedDates(jstDates);
-        setSelectedDate1(jstDates[0] || '');
-        setSelectedDate2(jstDates[1] || '');
+  
+        setUpdatedDates(dates);
+        setSelectedDate1(dates[0] || '');
+        setSelectedDate2(dates[1] || '');
       })
       .catch(err => {
         console.error("❌ 更新日時取得エラー:", err);
@@ -163,7 +165,7 @@ function MachineList() {
         setSelectedDate1('');
         setSelectedDate2('');
       });
-  }, [API_URL, decodedStoreName, selectedCompetitor, selectedType]);
+  }, [API_URL, decodedStoreName, selectedCompetitor, selectedType]);  
 
   /** 🔹 編集モードを切り替え */
   const toggleEdit = (index) => {
@@ -262,12 +264,16 @@ function MachineList() {
     const isOwnStore = selectedCompetitor === "self"; // ✅ 自店判定
     const competitorParam = isOwnStore ? "self" : selectedCompetitor; // ✅ フロントエンドで適切に処理
 
+    const normalizedDate1 = new Date(selectedDate1).toISOString().split("T")[0];
+    const normalizedDate2 = new Date(selectedDate2).toISOString().split("T")[0];
+
+
     // 🔹 URLエンコーディングを適用
     const encodedStoreName = encodeURIComponent(decodedStoreName);
     const encodedCompetitor = encodeURIComponent(competitorParam);
     const encodedCategory = encodeURIComponent(selectedType);
-    const encodedDate1 = encodeURIComponent(selectedDate1);
-    const encodedDate2 = encodeURIComponent(selectedDate2);
+    const encodedDate1 = encodeURIComponent(normalizedDate1);
+    const encodedDate2 = encodeURIComponent(normalizedDate2);
 
     const url = `${API_URL}/get-machines-by-dates?storeName=${encodedStoreName}&competitorName=${encodedCompetitor}&category=${encodedCategory}&date1=${encodedDate1}&date2=${encodedDate2}`;
 
@@ -283,20 +289,20 @@ function MachineList() {
       .then(data => {
         console.log("📥 受信データ:", data);
 
-        if (!data.date1 || !data.date2) {
+        if (!data[normalizedDate1] || !data[normalizedDate2]) {
           console.warn("❗ 受信データに日付データが不足", data);
           alert("データが取得できませんでした");
           return;
         }
-
-        console.log("📆 データ（最新）:", data.date1);
-        console.log("📆 データ（比較対象）:", data.date2);
-
+        
+        console.log("📆 データ（最新）:", data[normalizedDate1]);
+        console.log("📆 データ（比較対象）:", data[normalizedDate2]);
+        
         const latestMap = new Map();
-        data.date1.forEach(machine => latestMap.set(machine.machine_name, machine));
-
+        data[normalizedDate1].forEach(machine => latestMap.set(machine.machine_name, machine));
+        
         const previousMap = new Map();
-        data.date2.forEach(machine => previousMap.set(machine.machine_name, machine));
+        data[normalizedDate2].forEach(machine => previousMap.set(machine.machine_name, machine));        
 
         const allMachineNames = Array.from(new Set([...latestMap.keys(), ...previousMap.keys()])) ;
 
@@ -312,9 +318,9 @@ function MachineList() {
           return {
             machine_name: name,
             quantity,
-            formattedDate: updated_at ? formatDateToJSTString(updated_at).split(' ')[0] : '',
+            formattedDate: updated_at ? formatDateToJSTString(updated_at).split(" ")[0] : "",
             prevQuantity,
-            prevFormattedDate: prevUpdatedAt ? formatDateToJSTString(prevUpdatedAt).split(' ')[0] : '',
+            prevFormattedDate: prevUpdatedAt ? formatDateToJSTString(prevUpdatedAt).split(" ")[0] : "",
             difference: quantity - prevQuantity,
             isEditing: false,
             newQuantity: quantity,
@@ -330,7 +336,6 @@ function MachineList() {
         alert(`データ取得中にエラーが発生しました: ${err.message}`);
       });
   };
-
 
   // 比較データ取得
   const fetchComparisonData = () => {
@@ -388,11 +393,45 @@ function MachineList() {
       alert("比較データの取得に失敗しました");
     });
   };
+
+  const handleComparisonSort = (key) => {
+    let direction = 'desc';
+    if (comparisonSortConfig.key === key) {
+      direction = comparisonSortConfig.direction === 'desc' ? 'asc' : 'desc';
+    }
+    setComparisonSortConfig({ key, direction });
+  
+    const sorted = [...comparisonMachines].sort((a, b) => {
+      let aValue = a[key];
+      let bValue = b[key];
+  
+      // 差分のときは絶対値で比較
+      if (key === 'difference') {
+        aValue = Math.abs(aValue);
+        bValue = Math.abs(bValue);
+      }
+  
+      if (typeof aValue === 'string') {
+        return direction === 'asc'
+          ? aValue.localeCompare(bValue)
+          : bValue.localeCompare(aValue);
+      } else {
+        return direction === 'asc' ? aValue - bValue : bValue - aValue;
+      }
+    });
+  
+    setComparisonMachines(sorted); // comparisonMachines を set できるステートとして定義している前提
+  };
+  
+  const getComparisonSortIcon = (key) => {
+    if (comparisonSortConfig.key !== key) return '';
+    return comparisonSortConfig.direction === 'asc' ? '▲' : '▼';
+  };  
   
   return (
     <div className="machine-list-container">
-      <h2>登録済みの機種一覧</h2>
-
+      <HamburgerMenu storeName={storeName} />
+      <h2>登録済みの機種一覧 - {selectedStore}</h2>
       <div className="filter-container">
       <label>対象店舗を選択:</label>
         <select
@@ -505,16 +544,24 @@ function MachineList() {
             <table className="comparison-table">
               <thead>
                 <tr>
-                  <th>機種名</th>
-                  <th>
-                  {CompetitorTitle || "比較対象"} 台数 ({totalCurrentQuantity})
+                  <th onClick={() => handleComparisonSort('machine_name')}>
+                    機種名 {getComparisonSortIcon('machine_name')}
                   </th>
-                  <th>
-                    {comparisonCompetitorTitle || "比較対象"} 台数 ({totalComparisonQuantity}) 
+                  <th className="cansort" onClick={() => handleComparisonSort('currentQuantity')}>
+                    {CompetitorTitle || "比較対象"} 台数 ({totalCurrentQuantity}) 
+                    <span className="sort-icon">{getComparisonSortIcon('currentQuantity')}</span>
                   </th>
-                  <th>差分</th>
+                  <th className="cansort" onClick={() => handleComparisonSort('comparisonQuantity')}>
+                    {comparisonCompetitorTitle || "比較対象"} 台数 ({totalComparisonQuantity})
+                    <span className="sort-icon">{getComparisonSortIcon('comparisonQuantity')}</span>
+                  </th>
+                  <th className="cansort" onClick={() => handleComparisonSort('difference')}>
+                    差分 
+                    <span className="sort-icon">{getComparisonSortIcon('difference')}</span>
+                  </th>
                 </tr>
               </thead>
+
               <tbody>
                 {comparisonMachines.map((machine, index) => (
                   <tr key={index}>
