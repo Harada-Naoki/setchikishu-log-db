@@ -6,8 +6,6 @@ from dotenv import load_dotenv
 
 import mysql.connector
 
-# 本番用
-# import pymysql
 
 # 環境変数をロード
 load_dotenv()
@@ -22,15 +20,6 @@ DB_CONFIG = {
     "database": os.getenv("DB_NAME")
 }
 
-# 本番用
-# DB_CONFIG = {
-#     "host": os.getenv("DB_HOST"),
-#     "user": os.getenv("DB_USER"),
-#     "password": os.getenv("DB_PASSWORD"),
-#     "database": os.getenv("DB_NAME"),
-#     "port": 4000,
-#     "ssl": {"ssl": {}}
-# }
 
 
 # 特殊文字を削除する関数（データの正規化）
@@ -47,16 +36,6 @@ def find_closest_machine(input_name):
     cursor.execute("SELECT id, sis_code, dotcom_machine_name FROM name_collection")
     machines = cursor.fetchall()
     conn.close()
-
-    # 本番用
-    # conn = pymysql.connect(**DB_CONFIG)
-    # cursor = conn.cursor()
-    # cursor.execute("SELECT id, sis_code, dotcom_machine_name FROM name_collection")
-    # rows = cursor.fetchall()
-    # columns = [desc[0] for desc in cursor.description]
-    # machines = [dict(zip(columns, row)) for row in rows]
-    # cursor.close()
-    # conn.close()
 
     closest_match = None
     min_distance = float("inf")

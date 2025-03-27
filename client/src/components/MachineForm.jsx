@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import Modal from "react-modal";
 import axios from "axios";
@@ -28,6 +28,8 @@ function MachineForm() {
   const [searchingMachine, setSearchingMachine] = useState(null);
   const [latestUpdates, setLatestUpdates] = useState([]);
   const isOwnStore = selectedCompetitor === "self";
+  const [inputType, setInputType] = useState("html");
+  const scrollRef = useRef(null);
 
   const [pendingTotalConfirmation, setPendingTotalConfirmation] = useState([]); // 🔹 総台数確認データ
   const [showTotalConfirmationModal, setShowTotalConfirmationModal] = useState(false); // 🔹 モーダルの表示状態
@@ -72,7 +74,7 @@ function MachineForm() {
       .catch(error => console.error("機種タイプ取得エラー:", error));
   }, []);
 
-  /** 🔹 機種データをパース */
+  /** 🔹 機種データをパース(HTML) */
   const parseMachineData = () => {
     if (!machineData) {
         console.warn("⚠️ 入力されたデータが空です");
@@ -157,11 +159,84 @@ function MachineForm() {
     return machines;
   };
 
+  /** 🔹 機種データをパース(テキスト) */
+  const parseMachineListWithRateAndCategory = (text) => {
+    const lines = text.split("\n").map(line => line.trim()).filter(Boolean);
+    const result = [];
+
+    let currentRate = null;
+    let currentType = null;
+
+    const rateRegex = /^\[(\d+)円\/(\d+)(玉|枚)\]\s*(パチ|スロ)/;
+    const quantityRegex = /^(\d+)(?:\s*台)?$/; // 「台」があってもなくてもOK
+
+    // 🔹 レートカテゴリ定義
+    const rateMapping = {
+        "パチンコ": [
+            { min: 3.5, max: 4.5, category: "4円パチンコ" },
+            { min: 1.5, max: 3.49, category: "2円パチンコ" },
+            { min: 1, max: 1.49, category: "1円パチンコ" },
+            { min: 0, max: 0.99, category: "1円未満パチンコ" }
+        ],
+        "スロット": [
+            { min: 15, max: 24, category: "20円スロット" },
+            { min: 9, max: 14.99, category: "10円スロット" },
+            { min: 5, max: 8.99, category: "5円スロット" },
+            { min: 0, max: 4.99, category: "5円未満スロット" }
+        ]
+    };
+
+    const classifyRate = (value, type) => {
+        const ranges = rateMapping[type] || [];
+        const match = ranges.find(r => value >= r.min && value <= r.max);
+        return match ? match.category : "不明";
+    };
+
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+
+        const rateMatch = line.match(rateRegex);
+        if (rateMatch) {
+            const yen = parseFloat(rateMatch[1]);
+            const unit = parseFloat(rateMatch[2]);
+            const kind = rateMatch[4] === "パチ" ? "パチンコ" : "スロット";
+            currentRate = parseFloat((yen / unit).toFixed(4));
+            currentType = kind;
+            continue;
+        }
+
+        const qtyMatch = line.match(quantityRegex);
+        if (qtyMatch && i > 0) {
+            const quantity = parseInt(qtyMatch[1], 10);
+            const machine = lines[i - 1];
+            const category = classifyRate(currentRate, currentType);
+
+            result.push({
+                type: currentType,
+                rate: currentRate,
+                category,
+                machine,
+                quantity
+            });
+        }
+    }
+
+    return result;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
 
-    const machines = parseMachineData(); 
+    const isHtmlInput = inputType === "html";
+
+    let machines = [];
+
+    if (isHtmlInput) {
+        machines = parseMachineData(); // HTMLとしてパース
+    } else {
+        machines = parseMachineListWithRateAndCategory(machineData); // プレーンテキストとしてパース
+    }
 
     if (!selectedCompetitor || machines.length === 0) {
         alert("すべての項目を入力してください");
@@ -408,6 +483,10 @@ function MachineForm() {
     setSearchingMachine(machine);
     setMachineName(""); // 検索用フィールドをリセット
     setMachineSearchResults([]);
+
+    setTimeout(() => {
+      scrollRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, 100); // モーダル内のレンダリングが終わるタイミングを考慮
   };
 
   // 🔹 検索結果から修正確定
@@ -528,6 +607,10 @@ function MachineForm() {
         )}
 
         <label>機種名 & 台数:</label>
+        <select value={inputType} onChange={(e) => setInputType(e.target.value)}>
+          <option value="html">HTML形式</option>
+          <option value="text">テキスト形式</option>
+        </select>
         <textarea 
           className="machine-textarea" 
           value={machineData} 
@@ -549,7 +632,7 @@ function MachineForm() {
         contentLabel="機種データ確認"
         className="modal"
         overlayClassName="overlay"
-    >
+      >
         <h2>機種データの確認</h2>
 
         {/* 🔹 `sis_code` が見つからなかった機種の修正 */}
@@ -656,6 +739,8 @@ function MachineForm() {
             </>
         )}
 
+         <div ref={scrollRef}></div>
+         
         {/* 🔹 確定ボタン */}
         <button
             className="confirm-button"
@@ -676,7 +761,7 @@ function MachineForm() {
         >
           キャンセル
         </button>
-    </Modal>
+      </Modal>
 
       {showTotalConfirmationModal && (
         <div className="modal">

@@ -303,119 +303,58 @@ function normalizeText(text) {
     .trim();
 }
 
+function basicNormalize(text) {
+  return text
+    .replace(/Ⅰ/g, "I")
+    .replace(/Ⅱ/g, "II")
+    .replace(/Ⅲ/g, "III")
+    .replace(/Ⅳ/g, "IV")
+    .replace(/Ⅴ/g, "V")
+    .replace(/Ⅵ/g, "VI")
+    .replace(/Ⅶ/g, "VII")
+    .replace(/Ⅷ/g, "VIII")
+    .replace(/Ⅸ/g, "IX")
+    .replace(/Ⅹ/g, "X")
+    .replace(/[Ａ-Ｚａ-ｚ０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xFEE0))
+    .replace(/　/g, " ")  // 全角スペース → 半角スペース
+    .replace(/[~〜～]/g, "")  // 波ダッシュ系削除
+    .replace(/[【】\[\]]/g, "")  // 角カッコ削除
+    .replace(/[‐－ｰ\-]/g, "")  // ハイフン・長音記号削除
+    .replace(/[\/／\\＼]/g, "")  // スラッシュ & バックスラッシュ削除
+    .replace(/\./g, "")
+    .replace(/[:：]/g, "")  // **半角・全角の「：」を削除**
+    .replace(/[…]/g, "")
+    .replace(/？/g, "?") // 🔹 全角？ → 半角?
+    .replace(/！/g, "!") // 🔹 全角！ → 半角!
+    .replace(/\s+/g, "")  // 余分なスペース削除
+    .trim();
+}
+
+function SpecificNormalize(text) {
+  return text
+    .replace(/フィーバー/gi, "F")
+    .replace(/ぱちんこ|パチンコ/gi, '')
+    .replace(/^(.\b)?パチスロ/i, '$1')
+    .replace(/^(.\b)?ﾊﾟﾁｽﾛ/i, '$1')
+    .replace(/^(.\b)?スロット/i, '$1')
+    .replace(/^(.\b)?ｽﾛｯﾄ/i, '$1')
+    .replace(/^PACHISLOT|^pachislot/i, '')
+    .replace(/^SLOT|^slot/i, '')
+    .trim();
+}
+
 // 🔹 `sis_code` を取得しながら `INSERT`
 function insertMachineData(targetId, categoryId, machines, isOwnStore) {
   return new Promise((resolve, reject) => {
     const targetTable = isOwnStore ? "store_machine_data" : "machine_data";
     const idColumn = isOwnStore ? "store_id" : "competitor_id";
 
-    const machineQueries = machines.map(({ machine, quantity, aliases }) => {
-      return new Promise((resolveMachine) => {
-        if (!Array.isArray(aliases) || aliases.length === 0) {
-          aliases = [];
-        }
+    // 🔽 aliases の有無で処理分岐（すべてに aliases がある前提 or 一括で分けてもOK）
+    const hasAliases = machines.some(m => Array.isArray(m.aliases) && m.aliases.length > 0);
 
-        // 🔹 `aliases` & `machine` を正規化し、空文字を除去
-        const cleanedAliases = aliases.map(normalizeText).filter(alias => alias !== "");
-        const cleanedMachine = normalizeText(machine);
-        const searchTerms = Array.from(new Set([cleanedMachine, ...cleanedAliases]));
-
-        // **完全一致検索**
-        const exactMatchQuery = `
-          SELECT sis_machine_code, sis_machine_name FROM sis_machine_data
-          WHERE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
-                    sis_machine_name, '　', ''), ' ', ''), '【', ''), '】', ''), '~', ''), '〜', ''), '～', ''), '-', ''), '‐', ''), '－', ''), 'ｰ', ''), '／', ''), '/', ''), '\', ''), '＼', ''), '.', ''), '：', ''), ':', ''), '[', ''), ']', '')     
-          IN (${searchTerms.map(() => "?").join(", ")})
-          LIMIT 1
-        `;
-
-        db.query(exactMatchQuery, searchTerms, (err, result) => {
-          if (err) {
-            console.error("❌ `sis_code` 取得エラー:", err);
-            return resolveMachine({ machine, quantity, sis_code: null, aliases });
-          }
-
-          if (result.length > 0) {
-            return resolveMachine({
-              machine,
-              quantity,
-              sis_code: result[0].sis_machine_code,
-              aliases,
-            });
-          }
-
-          // **完全一致で見つからなかった場合、厳しめの部分一致検索**
-          console.warn(`⚠️ 完全一致なし: ${machine} (正規化後: ${cleanedMachine})`);
-
-          const strictPartialMatchQuery = `
-            SELECT sis_machine_code, sis_machine_name 
-            FROM sis_machine_data
-            WHERE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
-                    sis_machine_name, '　', ''), ' ', ''), '【', ''), '】', ''), '~', ''), '〜', ''), '～', ''), '-', ''), '‐', ''), '－', ''), 'ｰ', ''), '／', ''), '/', ''), '\', ''), '＼', ''), '.', ''), '：', ''), ':', ''), '[', ''), ']', '')
-            LIKE ? 
-            OR REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
-                    sis_machine_name, '　', ''), ' ', ''), '【', ''), '】', ''), '~', ''), '〜', ''), '～', ''), '-', ''), '‐', ''), '－', ''), 'ｰ', ''), '／', ''), '/', ''), '\', ''), '＼', ''), '.', ''), '：', ''), ':', ''), '[', ''), ']', '')
-            LIKE ? 
-            ORDER BY LENGTH(REGEXP_REPLACE(sis_machine_name, '【.*?】', '')) ASC
-            LIMIT 1;
-          `;
-
-          const partialSearchTerms = [`%${cleanedMachine}%`, `%${cleanedMachine}%`];
-
-          db.query(strictPartialMatchQuery, partialSearchTerms, (err, strictPartialResult) => {
-            if (err) {
-              console.error("❌ 厳しめ部分一致検索エラー:", err);
-              return resolveMachine({ machine, quantity, sis_code: null, aliases });
-            }
-
-            console.log("🔍 厳しめ部分一致検索結果:", strictPartialResult);
-
-            if (strictPartialResult.length > 0) {
-              console.log(`✅ 厳しめ部分一致取得: ${machine} → ${strictPartialResult[0].sis_machine_code} (DB名: ${strictPartialResult[0].sis_machine_name})`);
-              return resolveMachine({
-                machine,
-                quantity,
-                sis_code: strictPartialResult[0].sis_machine_code,
-                aliases,
-              });
-            }
-
-            console.warn(`⚠️ 厳しめ部分一致も見つからず: ${machine} (正規化後: ${cleanedMachine})`);
-
-            // **厳しめ部分一致でも見つからなかった場合、通常の部分一致検索**
-            const partialMatchQuery = `
-              SELECT sis_code, dotcom_machine_name FROM name_collection
-              WHERE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
-                    dotcom_machine_name, '　', ''), ' ', ''), '【', ''), '】', ''), '~', ''), '〜', ''), '～', ''), '-', ''), '‐', ''), '－', ''), 'ｰ', ''), '／', ''), '/', ''), '\', ''), '＼', ''), '.', ''), '：', ''), ':', ''), '[', ''), ']', '')
-              COLLATE utf8mb4_general_ci
-              LIKE CONCAT('%', ?, '%')
-              ORDER BY LENGTH(REGEXP_REPLACE(dotcom_machine_name, '【.*?】', '')) ASC
-              LIMIT 1
-            `;
-
-            db.query(partialMatchQuery, [cleanedMachine], (err, partialResult) => {
-              if (err) {
-                console.error("❌ 部分一致検索エラー:", err);
-                return resolveMachine({ machine, quantity, sis_code: null, aliases });
-              }
-
-              if (partialResult.length > 0) {
-                console.log(`✅ 部分一致取得: ${machine} → ${partialResult[0].sis_code} (DB名: ${partialResult[0].dotcom_machine_name})`);
-                return resolveMachine({
-                  machine,
-                  quantity,
-                  sis_code: partialResult[0].sis_code,
-                  aliases,
-                });
-              }
-
-              console.warn(`⚠️ 部分一致も見つからず: ${machine} (正規化後: ${cleanedMachine})`);
-              resolveMachine({ machine, quantity, sis_code: null, aliases });
-            });
-          });
-        });
-      });
-    });
+    const machineQueries = hasAliases
+      ? getMachineQueriesWithAliases(machines)
+      : getMachineQueriesWithoutAliases(machines);
 
     Promise.all(machineQueries).then((machineResults) => {
       const updatedAt = new Date().toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" }); // 🔹 `updated_at` をここで定義
@@ -462,6 +401,172 @@ function insertMachineData(targetId, categoryId, machines, isOwnStore) {
     }).catch((err) => {
           console.error("❌ `insertMachineData` 処理エラー:", err);
           reject(err);
+    });
+  });
+}
+
+function getMachineQueriesWithAliases(machines) {
+  return machines.map(({ machine, quantity, aliases }) => {
+    return new Promise((resolveMachine) => {
+      if (!Array.isArray(aliases) || aliases.length === 0) {
+        aliases = [];
+      }
+      // 🔹 `aliases` & `machine` を正規化し、空文字を除去
+      const cleanedAliases = aliases.map(normalizeText).filter(alias => alias !== "");
+      const cleanedMachine = normalizeText(machine);
+      const searchTerms = Array.from(new Set([cleanedMachine, ...cleanedAliases]));
+
+      // **完全一致検索**
+      const exactMatchQuery = `
+        SELECT sis_machine_code, sis_machine_name FROM sis_machine_data
+        WHERE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+                  sis_machine_name, '　', ''), ' ', ''), '【', ''), '】', ''), '~', ''), '〜', ''), '～', ''), '-', ''), '‐', ''), '－', ''), 'ｰ', ''), '／', ''), '/', ''), '\', ''), '＼', ''), '.', ''), '：', ''), ':', ''), '[', ''), ']', '')     
+        IN (${searchTerms.map(() => "?").join(", ")})
+        LIMIT 1
+      `;
+
+      db.query(exactMatchQuery, searchTerms, (err, result) => {
+        if (err) {
+          console.error("❌ `sis_code` 取得エラー:", err);
+          return resolveMachine({ machine, quantity, sis_code: null, aliases });
+        }
+
+        if (result.length > 0) {
+          return resolveMachine({
+            machine,
+            quantity,
+            sis_code: result[0].sis_machine_code,
+            aliases,
+          });
+        }
+
+        // **完全一致で見つからなかった場合、厳しめの部分一致検索**
+        console.warn(`⚠️ 完全一致なし: ${machine} (正規化後: ${cleanedMachine})`);
+
+        const strictPartialMatchQuery = `
+          SELECT sis_machine_code, sis_machine_name 
+          FROM sis_machine_data
+          WHERE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+                  sis_machine_name, '　', ''), ' ', ''), '【', ''), '】', ''), '~', ''), '〜', ''), '～', ''), '-', ''), '‐', ''), '－', ''), 'ｰ', ''), '／', ''), '/', ''), '\', ''), '＼', ''), '.', ''), '：', ''), ':', ''), '[', ''), ']', '')
+          LIKE ? 
+          OR REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+                  sis_machine_name, '　', ''), ' ', ''), '【', ''), '】', ''), '~', ''), '〜', ''), '～', ''), '-', ''), '‐', ''), '－', ''), 'ｰ', ''), '／', ''), '/', ''), '\', ''), '＼', ''), '.', ''), '：', ''), ':', ''), '[', ''), ']', '')
+          LIKE ? 
+          ORDER BY LENGTH(REGEXP_REPLACE(sis_machine_name, '【.*?】', '')) ASC
+          LIMIT 1;
+        `;
+
+        const partialSearchTerms = [`%${cleanedMachine}%`, `%${cleanedMachine}%`];
+
+        db.query(strictPartialMatchQuery, partialSearchTerms, (err, strictPartialResult) => {
+          if (err) {
+            console.error("❌ 厳しめ部分一致検索エラー:", err);
+            return resolveMachine({ machine, quantity, sis_code: null, aliases });
+          }
+
+          console.log("🔍 厳しめ部分一致検索結果:", strictPartialResult);
+
+          if (strictPartialResult.length > 0) {
+            console.log(`✅ 厳しめ部分一致取得: ${machine} → ${strictPartialResult[0].sis_machine_code} (DB名: ${strictPartialResult[0].sis_machine_name})`);
+            return resolveMachine({
+              machine,
+              quantity,
+              sis_code: strictPartialResult[0].sis_machine_code,
+              aliases,
+            });
+          }
+
+          console.warn(`⚠️ 厳しめ部分一致も見つからず: ${machine} (正規化後: ${cleanedMachine})`);
+
+          // **厳しめ部分一致でも見つからなかった場合、通常の部分一致検索**
+          const partialMatchQuery = `
+            SELECT sis_code, dotcom_machine_name FROM name_collection
+            WHERE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+                  dotcom_machine_name, '　', ''), ' ', ''), '【', ''), '】', ''), '~', ''), '〜', ''), '～', ''), '-', ''), '‐', ''), '－', ''), 'ｰ', ''), '／', ''), '/', ''), '\', ''), '＼', ''), '.', ''), '：', ''), ':', ''), '[', ''), ']', '')
+            COLLATE utf8mb4_general_ci
+            LIKE CONCAT('%', ?, '%')
+            ORDER BY LENGTH(REGEXP_REPLACE(dotcom_machine_name, '【.*?】', '')) ASC
+            LIMIT 1
+          `;
+
+          db.query(partialMatchQuery, [cleanedMachine], (err, partialResult) => {
+            if (err) {
+              console.error("❌ 部分一致検索エラー:", err);
+              return resolveMachine({ machine, quantity, sis_code: null, aliases });
+            }
+
+            if (partialResult.length > 0) {
+              console.log(`✅ 部分一致取得: ${machine} → ${partialResult[0].sis_code} (DB名: ${partialResult[0].dotcom_machine_name})`);
+              return resolveMachine({
+                machine,
+                quantity,
+                sis_code: partialResult[0].sis_code,
+                aliases,
+              });
+            }
+
+            console.warn(`⚠️ 部分一致も見つからず: ${machine} (正規化後: ${cleanedMachine})`);
+            resolveMachine({ machine, quantity, sis_code: null, aliases });
+          });
+        });
+      });
+    });
+  });
+}
+
+function getMachineQueriesWithoutAliases(machines) {
+  return machines.map(({ machine, quantity }) => {
+    return new Promise((resolveMachine) => {
+      const basic = basicNormalize(machine);
+      const gameSpecific = basicNormalize(SpecificNormalize(machine));
+
+      const partialMatchQuery = `
+        SELECT sis_code, dotcom_machine_name FROM name_collection
+        WHERE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+                  dotcom_machine_name, '　', ''), ' ', ''), '【', ''), '】', ''), '~', ''), '〜', ''), '～', ''), '-', ''), '‐', ''), '－', ''), 'ｰ', ''), '／', ''), '/', ''), '\', ''), '＼', ''), '.', ''), '：', ''), ':', ''), '[', ''), ']', ''), '…', '')
+        COLLATE utf8mb4_general_ci
+        LIKE CONCAT('%', ?, '%')
+        ORDER BY LENGTH(REGEXP_REPLACE(dotcom_machine_name, '【.*?】', '')) ASC
+        LIMIT 1
+      `;
+
+      db.query(partialMatchQuery, [basic], (err, result1) => {
+        if (err) {
+          console.error("❌ basic検索エラー:", err);
+          return resolveMachine({ machine, quantity, sis_code: null, aliases: [] });
+        }
+
+        if (result1.length > 0) {
+          console.log(`✅ basic一致: ${machine} → ${result1[0].sis_code}`);
+          return resolveMachine({
+            machine,
+            quantity,
+            sis_code: result1[0].sis_code,
+            aliases: []
+          });
+        }
+
+        // 🔁 basicで見つからなかった場合、gameSpecificで再検索
+        db.query(partialMatchQuery, [gameSpecific], (err, result2) => {
+          if (err) {
+            console.error("❌ gameSpecific検索エラー:", err);
+            return resolveMachine({ machine, quantity, sis_code: null, aliases: [] });
+          }
+
+          if (result2.length > 0) {
+            console.log(`✅ gameSpecific一致: ${machine} → ${result2[0].sis_code}`);
+            return resolveMachine({
+              machine,
+              quantity,
+              sis_code: result2[0].sis_code,
+              aliases: []
+            });
+          }
+
+          console.warn(`⚠️ いずれの正規化でも一致なし: ${machine}`);
+          return resolveMachine({ machine, quantity, sis_code: null, aliases: [] });
+        });
+      });
     });
   });
 }
